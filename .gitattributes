@@ -1,0 +1,36 @@
+* text=auto eol=lf
+
+# Swift / iOS source
+*.swift        text eol=lf
+*.h            text eol=lf
+*.m            text eol=lf
+*.mm           text eol=lf
+*.plist        text eol=lf
+*.xcconfig     text eol=lf
+*.entitlements text eol=lf
+*.storyboard   text eol=lf
+*.xib          text eol=lf
+*.pbxproj      text eol=lf merge=union
+
+# Docs / config
+*.md           text eol=lf
+*.json         text eol=lf
+*.yml          text eol=lf
+*.yaml         text eol=lf
+*.gitignore    text eol=lf
+*.gitattributes text eol=lf
+
+# 3D / binary assets — never touch line endings
+*.obj          binary
+*.mtl          binary
+*.usdz         binary
+*.usd          binary
+*.usda         binary
+*.usdc         binary
+*.fbx          binary
+*.png          binary
+*.jpg          binary
+*.jpeg         binary
+*.pdf          binary
+*.ico          binary
+*.icns         binary

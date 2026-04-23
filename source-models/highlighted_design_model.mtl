@@ -1,0 +1,14 @@
+# Material Library for Highlighted Rebars
+
+newmtl mat_pass
+Kd 0.0 1.0 0.0
+d 0.1
+
+newmtl mat_error
+Kd 1.0 1.0 0.0
+d 1.0
+
+newmtl mat_missing
+Kd 1.0 0.0 0.0
+d 1.0
+
