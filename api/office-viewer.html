@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LH Rebar AR — 오피스 뷰어</title>
+  <script src="https://cdn.jsdelivr.net/npm/livekit-client@2/dist/livekit-client.umd.min.js"></script>
+  <style>
+    body { font-family: -apple-system, system-ui, sans-serif; margin: 0; background: #111; color: #eee; }
+    header { padding: 12px 16px; background: #1c1c1e; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    header input { background:#2c2c2e; color:#eee; border:1px solid #3a3a3c; border-radius:6px; padding:8px; font-size:13px; }
+    #url { width: 320px; }
+    #token { flex: 1; min-width: 240px; }
+    button { background:#0a84ff; color:#fff; border:0; border-radius:6px; padding:8px 16px; font-size:14px; cursor:pointer; }
+    button.secondary { background:#3a3a3c; }
+    #status { padding: 8px 16px; font-size: 13px; color:#9b9b9f; }
+    #stage { display:flex; align-items:center; justify-content:center; height: calc(100vh - 110px); }
+    #stage video { max-width: 100%; max-height: 100%; background:#000; border-radius:8px; }
+    .placeholder { color:#5a5a5e; font-size:15px; }
+  </style>
+</head>
+<body>
+  <header>
+    <input id="url" placeholder="wss://...livekit.cloud" value="wss://ar-w5h0quhi.livekit.cloud" />
+    <input id="token" placeholder="오피스(viewer) 토큰을 붙여넣기" />
+    <button id="connect">연결</button>
+    <button id="mic" class="secondary" disabled>🎤 말하기</button>
+  </header>
+  <div id="status">대기 중 — URL과 토큰 입력 후 [연결]을 누르세요.</div>
+  <div id="stage"><div class="placeholder">현장이 화면 공유를 시작하면 여기에 표시됩니다.</div></div>
+
+  <script>
+    const { Room, RoomEvent, Track } = LivekitClient;
+    let room = null, micOn = false;
+    const $ = (id) => document.getElementById(id);
+    const setStatus = (t) => { $('status').textContent = t; };
+
+    function attachTrack(track) {
+      if (track.kind === Track.Kind.Video) {
+        $('stage').innerHTML = '';
+        const el = track.attach();
+        el.autoplay = true; el.playsInline = true;
+        $('stage').appendChild(el);
+      } else if (track.kind === Track.Kind.Audio) {
+        const el = track.attach(); // plays remote audio
+        el.style.display = 'none';
+        document.body.appendChild(el);
+      }
+    }
+
+    $('connect').onclick = async () => {
+      const url = $('url').value.trim();
+      const token = $('token').value.trim();
+      if (!url || !token) { setStatus('URL과 토큰을 모두 입력하세요.'); return; }
+      try {
+        setStatus('연결 중…');
+        room = new Room();
+        room.on(RoomEvent.TrackSubscribed, (track) => { attachTrack(track); setStatus('현장 영상 수신 중'); });
+        room.on(RoomEvent.ParticipantConnected, (p) => setStatus('현장 참가: ' + p.identity));
+        room.on(RoomEvent.Disconnected, () => setStatus('연결 종료됨'));
+        await room.connect(url, token);
+        setStatus('연결됨 — 현장이 공유를 시작하길 대기 중…');
+        // attach any already-published tracks
+        room.remoteParticipants.forEach((p) => p.trackPublications.forEach((pub) => pub.track && attachTrack(pub.track)));
+        $('mic').disabled = false;
+      } catch (e) {
+        setStatus('연결 실패: ' + (e && e.message ? e.message : e));
+      }
+    };
+
+    $('mic').onclick = async () => {
+      if (!room) return;
+      micOn = !micOn;
+      try {
+        await room.localParticipant.setMicrophoneEnabled(micOn);
+        $('mic').textContent = micOn ? '🔴 말하는 중' : '🎤 말하기';
+      } catch (e) { setStatus('마이크 오류: ' + e.message + ' (https/localhost에서만 가능)'); }
+    };
+  </script>
+</body>
+</html>

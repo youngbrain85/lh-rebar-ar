@@ -1,0 +1,19 @@
+// Copy this to LHRebarAR/Services/LiveShareConfig.swift (gitignored) and fill in
+// your values. Generate a dev token with: api/livekit_token.py
+//
+// The app normally fetches a fresh per-room token from `tokenEndpoint` at share
+// time; `devToken` is only a fallback (room "ar-demo"). The LiveKit API secret
+// must NEVER appear in the app — it lives server-side only (dashboard env vars).
+import Foundation
+
+enum LiveShareConfig {
+    static let serverURL = "wss://<your-project>.livekit.cloud"
+
+    /// Dashboard token endpoint (permanent deployment).
+    static let tokenEndpoint = "https://<your-dashboard>.vercel.app/api/token"
+
+    /// Fallback dev token — generate with api/livekit_token.py; expires.
+    static let devToken = "<paste a field/publisher token>"
+
+    static var isConfigured: Bool { !serverURL.isEmpty && !devToken.isEmpty }
+}

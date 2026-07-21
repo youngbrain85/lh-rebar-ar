@@ -1,0 +1,282 @@
+{
+  "info": {
+    "_postman_id": "d8d3cfa0-bfc8-4d3f-84ad-9bade167f3f6",
+    "name": "LH",
+    "description": "### 업데이트 기록\n\n---\n\n**6월 19일**\n\nE57 파일 업로드, E57 파일 경로 조회 기능 추가",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "55384165",
+    "_collection_link": "https://go.postman.co/collection/39904492-d8d3cfa0-bfc8-4d3f-84ad-9bade167f3f6?source=collection_link"
+  },
+  "item": [
+    {
+      "name": "upload ply file",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {
+              "key": "file",
+              "type": "file",
+              "uuid": "361f4920-6adc-4ce2-ab6a-d023c8cae243",
+              "description": "ONLY .ply format available",
+              "src": "/Users/jiin/Desktop/test.ply"
+            },
+            {
+              "key": "site_id",
+              "value": "2",
+              "type": "text",
+              "uuid": "85683c66-7fa2-4ecf-9595-753934ea4277"
+            },
+            {
+              "key": "inspector",
+              "value": "Jin",
+              "type": "text",
+              "uuid": "e7776af5-b589-41ac-8cc0-fed3f4e01527"
+            },
+            {
+              "key": "remark",
+              "value": "",
+              "type": "text",
+              "uuid": "d676f469-f201-4d41-9e79-68a604c68307",
+              "description": "OPTIONAL"
+            },
+            {
+              "key": "source_filename",
+              "value": "",
+              "type": "text",
+              "uuid": "56b2b635-1cdd-476f-9433-bee0f2ebdbed",
+              "description": "OPTIONAL"
+            }
+          ]
+        },
+        "url": {
+          "raw": "http://api.briconlab.com:50001/analysis/upload",
+          "protocol": "http",
+          "host": [
+            "api",
+            "briconlab",
+            "com"
+          ],
+          "port": "50001",
+          "path": [
+            "analysis",
+            "upload"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "site list",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://api.briconlab.com:50001/analysis/site-list",
+          "protocol": "http",
+          "host": [
+            "api",
+            "briconlab",
+            "com"
+          ],
+          "port": "50001",
+          "path": [
+            "analysis",
+            "site-list"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "ar model list",
+      "protocolProfileBehavior": {
+        "disableBodyPruning": true
+      },
+      "request": {
+        "method": "GET",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "http://api.briconlab.com:50001/analysis/ar-list?site_id=5",
+          "protocol": "http",
+          "host": [
+            "api",
+            "briconlab",
+            "com"
+          ],
+          "port": "50001",
+          "path": [
+            "analysis",
+            "ar-list"
+          ],
+          "query": [
+            {
+              "key": "site_id",
+              "value": "5",
+              "type": "text"
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "ar model details",
+      "protocolProfileBehavior": {
+        "disableBodyPruning": true
+      },
+      "request": {
+        "method": "GET",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "http://api.briconlab.com:50001/analysis/ar-details?ar_id=9e4f1a7c3b6d2805",
+          "protocol": "http",
+          "host": [
+            "api",
+            "briconlab",
+            "com"
+          ],
+          "port": "50001",
+          "path": [
+            "analysis",
+            "ar-details"
+          ],
+          "query": [
+            {
+              "key": "ar_id",
+              "value": "9e4f1a7c3b6d2805"
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "ply file path",
+      "protocolProfileBehavior": {
+        "disableBodyPruning": true
+      },
+      "request": {
+        "method": "GET",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "http://api.briconlab.com:50001/analysis/ply-path?filename=a038a8835896_144104.ply",
+          "protocol": "http",
+          "host": [
+            "api",
+            "briconlab",
+            "com"
+          ],
+          "port": "50001",
+          "path": [
+            "analysis",
+            "ply-path"
+          ],
+          "query": [
+            {
+              "key": "filename",
+              "value": "a038a8835896_144104.ply"
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "fbx file",
+      "protocolProfileBehavior": {
+        "disableBodyPruning": true
+      },
+      "request": {
+        "method": "GET",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "http://api.briconlab.com:50001/analysis/fbx?ar_id=b6f2d8e3a9c1504e",
+          "protocol": "http",
+          "host": [
+            "api",
+            "briconlab",
+            "com"
+          ],
+          "port": "50001",
+          "path": [
+            "analysis",
+            "fbx"
+          ],
+          "query": [
+            {
+              "key": "ar_id",
+              "value": "b6f2d8e3a9c1504e"
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "defect marking model",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:8000/analysis/defect-marking",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "8000",
+          "path": [
+            "analysis",
+            "defect-marking"
+          ]
+        }
+      },
+      "response": []
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseURL",
+      "value": "https://api.briconlab.com",
+      "type": "default"
+    }
+  ]
+}

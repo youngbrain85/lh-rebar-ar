@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>method</key>
+    <string>app-store-connect</string>
+    <key>teamID</key>
+    <string>G88CPAZ3MP</string>
+    <key>destination</key>
+    <string>export</string>
+    <!-- Automatic + cloud signing: with the ASC API key passed via the
+         -authenticationKey* flags, xcodebuild mints/renews the Apple
+         Distribution certificate and profile on demand — no manual portal
+         work when they expire (the old manual ones expired 2026-07-04). -->
+    <key>signingStyle</key>
+    <string>automatic</string>
+    <key>stripSwiftSymbols</key>
+    <true/>
+    <key>uploadSymbols</key>
+    <true/>
+</dict>
+</plist>

@@ -1,108 +1,216 @@
 # LH Rebar AR — Project Context
 
-This file is auto-loaded by Claude Code whenever this directory is opened. It carries the project's decisions and plan across machines (Windows ↔ macOS) so a fresh session can continue without losing context.
+Auto-loaded by Claude Code in this directory. It carries decisions, hard-won
+gotchas, and the current plan across machines/sessions so a fresh session can
+continue without re-deriving anything.
 
-## Project
+**Last updated**: 2026-07-21 · iOS build 27 on TestFlight · dashboard live on Vercel.
 
-iOS native AR app for visualizing 3D rebar models on-site (construction/engineering QA for rebar placement).
+---
 
-- **Working directory**: the root of this project (contains `LHRebarAR/` Xcode project once scaffolded on macOS).
-- **Primary users**: field engineers verifying rebar layout against design.
+## 1. What this project is
 
-## Resolved decisions
+Two shipped pieces that work together for on-site rebar QA:
 
-- **Platform**: iOS 17+ native. ARKit + RealityKit + SwiftUI. No cross-platform frameworks.
-- **Device support**: **LiDAR-only** (iPad Pro M1+, iPhone 12 Pro or newer). No fallback for non-LiDAR devices.
-- **Both iPhone Pro and iPad Pro** are supported — use SwiftUI adaptive layout (size classes). FineAdjustPad: bottom sheet on iPhone, right side panel on iPad.
-- **Model format**: app consumes **USDZ only**. Source is Revit OBJ/MTL in `source-models/`; convert to USDZ with Reality Converter on macOS (see `source-models/README.md`). Do not add IFC/Revit parsing to the app.
-- **Model complexity**: low polygon (rebar = bundles of cylinders). No LOD/proxy loading — plain async USDZ load is fine.
-- **Session restoration**: **NOT implemented.** User re-places the model on every launch. No ARWorldMap persistence. On session interruption, show "place again" prompt.
-- **Markerless**: rely on plane detection + LiDAR scene mesh. No image anchors.
-- **Scale is locked 1:1** — pinch-to-scale is disabled. Engineering tool, not a preview toy.
+| Piece | What it is | Where it runs |
+|---|---|---|
+| **LH Rebar AR** (iOS) | Field app: overlays the design rebar model on the real structure, measures, captures evidence, shares its AR screen live | iPhone/iPad w/ LiDAR, distributed via TestFlight |
+| **office-dashboard** (Next.js) | Office console: site management, 3D model viewer, live AR collaboration (watch + talk + annotate) | https://office-dashboard-xi.vercel.app |
 
-## Design & UX
+Data comes from the **BriconLab backend** (`http://api.briconlab.com:50001`).
+Live video/audio/data runs over **LiveKit Cloud** (`wss://ar-w5h0quhi.livekit.cloud`).
 
-- **Engineering-style UI**: monochrome base + single accent color. SF Pro Text for labels, **SF Mono for all numeric readouts** (coordinates, angles, steps).
-- **Workflow**: scan → ready-to-place → placed → adjusting (gesture or fine) → locked.
-- **Gestures (coarse)**: 1-finger pan (XZ on ground), 2-finger rotate (Y axis). Pinch disabled.
-- **Fine adjustment**: ±X/Y/Z in mm steps (1 / 5 / 10 / 50) and ±Rx/Ry/Rz in 0.1° / 0.5° / 1° steps. Long-press for continuous increment with haptic tick. Undo/redo up to 50 steps. **Internal state stored as integer 1/10mm and 1/10° to prevent float drift.**
-- **HUD**: live transform readout, tracking-state badge, model name.
+---
 
-## Anchoring strategy
+## 2. Setup on a new machine (READ FIRST)
 
-- `ARWorldTrackingConfiguration` with `sceneReconstruction = .mesh`, `planeDetection = [.horizontal, .vertical]`, `frameSemantics.insert(.sceneDepth)`, `environmentTexturing = .automatic`.
-- Raycast priority at placement: **LiDAR mesh hit → existing plane → estimated plane**.
-- Entity tree under the anchor:
-  ```
-  AnchorEntity(anchor: ARAnchor)
-    └── placementRoot  ← all fine-adjustment transforms applied HERE, not the anchor
-         ├── modelEntity (USDZ)
-         └── gizmoEntity (axis/bbox, shown while adjusting)
-  ```
-- When tracking state drops to `.limited`, lock gesture input and surface a banner.
-
-## Directory layout (target, scaffolded on macOS)
+Secrets are gitignored, so a fresh clone does **not** build/run until you restore
+them. Bring these over from the original machine (1Password/AirDrop/etc — never
+commit them):
 
 ```
-LH/                          ← this directory (project root)
-├── CLAUDE.md                ← this file
-├── source-models/           ← Revit OBJ/MTL (not bundled in app)
-│   ├── README.md            ← conversion pipeline
-│   ├── highlighted_design_model.obj
-│   └── highlighted_design_model.mtl
-├── LHRebarAR.xcodeproj      ← created on macOS, step 0
-└── LHRebarAR/
-    ├── App/                 (LHRebarARApp.swift, AppRootView.swift)
-    ├── AR/                  (ARSessionManager, ARViewContainer, AnchorStrategy, ModelAnchorController, CoachingOverlayCoordinator, ARDiagnostics)
-    ├── Placement/           (PlacementStateMachine, PlacementViewModel, GestureCoordinator, FineAdjustmentViewModel)
-    ├── Model/               (RebarModel, ModelLibrary, ModelLoader)
-    ├── UI/
-    │   ├── Screens/         (ModelPickerView, ARPlacementView, SettingsView)
-    │   ├── Components/      (FineAdjustPad, StatusBadge, NumericStepper, PrimaryActionButton)
-    │   └── Theme/           (LHColors, LHTypography, LHSpacing)
-    ├── Services/            (HapticsService, Logger)
-    ├── Resources/
-    │   ├── Models/          (converted USDZ goes here, added to bundle)
-    │   └── Assets.xcassets
-    └── Info.plist
+secrets/livekit.env                        # LIVEKIT_URL / API_KEY / API_SECRET
+office-dashboard/.env.local                # same three (NEXT_PUBLIC_LIVEKIT_URL + key + secret)
+LHRebarAR/Services/LiveShareConfig.swift   # copy from LiveShareConfig.swift.example, fill in
 ```
 
-## Info.plist essentials
+**iOS:**
+```bash
+brew install xcodegen                # if missing — .xcodeproj is generated, not committed
+cd lh-rebar-ar && xcodegen generate
+open LHRebarAR.xcodeproj
+```
+Signing uses team `G88CPAZ3MP`, bundle `kr.lh.rebar-ar`, automatic signing.
+App Store Connect API key must exist at `~/.appstoreconnect/private_keys/AuthKey_5J8MLZ4426.p8`
+for `scripts/release.sh` and `scripts/build_status.py` to work.
 
-- `NSCameraUsageDescription` — "철근 모델을 현장에 증강 표시하기 위해 카메라가 필요합니다."
-- `UIRequiredDeviceCapabilities`: `arkit`
-- Enforce LiDAR at runtime: check `ARWorldTrackingConfiguration.supportsSceneReconstruction(.mesh)` and show an unsupported-device screen if false.
-- `UIApplication.isIdleTimerDisabled = true` while AR session active.
+**Dashboard:**
+```bash
+cd office-dashboard && npm install && npm run dev     # → http://localhost:3000
+npx vercel login                                       # to deploy
+```
 
-## Implementation roadmap (MVP ≈ 2 weeks)
+**Python helpers** (`api/livekit_token.py`, `scripts/build_status.py`) use a
+`.venv` at the repo root with `pyjwt`:
+```bash
+python3 -m venv .venv && .venv/bin/pip install pyjwt
+```
 
-0. **Xcode scaffolding** (0.5d) — create project, set bundle ID `kr.lh.rebar-ar`, iOS 17+, permissions, empty SwiftUI app builds to device.
-1. **AR session basics** (1–2d) — ARSessionManager, ARViewContainer, coaching overlay, tracking badge, LiDAR mesh debug toggle.
-2. **USDZ load + initial placement** (2–3d) — bundle sample USDZ, picker → AR view → tap to place. Anchor + placementRoot + modelEntity tree.
-3. **Coarse gestures** (2d) — pan/rotate with state-machine gating. Input lock during `.limited`.
-4. **Fine adjustment UI** (2–3d) — FineAdjustPad, integer-stored transform, haptics, undo/redo. Adaptive layout for iPhone vs iPad.
-5. **UI polish** (2d) — theme, typography, micro-copy, light/dark.
-6. **Stability & diagnostics** (2d) — 30-min drift test target < 2cm @ 5m, interruption recovery, diagnostics HUD in debug builds.
+---
 
-## Testing
+## 3. Current status
 
-- Simulator has no ARKit — only unit test VMs and pure logic (state machine, transform math, integer step arithmetic).
-- **Real-device checklist**: indoor floor placement, vertical wall placement, backlit/dim conditions, fast motion drift, 5m/10m viewing angle, 30-min continuous use, call/home-button recovery.
-- Performance target: 60fps with LiDAR on, memory < 400MB.
+### iOS app — build 27 (0.1.0) on TestFlight, VALID
 
-## Risks
+Working and verified on device:
+- **Model placement** — tap to place USDZ; raycast priority LiDAR mesh → plane → estimated plane
+- **Coarse gestures** (1-finger pan XZ, 2-finger yaw) + **fine adjustment** (mm / 0.1° steps, undo/redo, integer-stored)
+- **Re-anchoring** — on every adjustment commit, the model is re-anchored at its current pose (kills lever-arm drift)
+- **Visual lock (재고정)** — scope button: ICP-aligns the current LiDAR scan to a datum captured at commit time and snaps the model back onto the real structure. **Real-scan ↔ real-scan only; the design model is never matched against anything.**
+- **Measurement** — Apple-Measure-style reticle + `+` button; real↔real and **model↔real** (green reticle = model surface); total + horizontal/vertical breakdown; per-measurement **name** prompt; compact white label showing `#N 283mm` offset perpendicular to the line
+- **Screen capture** — snapshot + footer annotation listing named measurements → Photos
+- **Backend** — site list → model list → USDZ download/cache → AR
+- **Live share** — in-app ReplayKit capture → LiveKit; per-site rooms (`site-<id>`); mic both ways; receives office pings (2D) and memos (world-locked 3D pins)
 
-- Anchor drift is an ARKit limitation — mitigated by LiDAR mesh + UI warning; cannot be fully solved without markers (out of scope).
-- SwiftUI ↔ ARView state sync: high-frequency updates via Combine subject in the Coordinator; SwiftUI bindings only for state transitions.
-- Float accumulation in fine adjustment — prevented by integer internal state.
+### Dashboard — deployed, permanent URL
 
-## Open items
+`https://office-dashboard-xi.vercel.app` (Vercel project `office-dashboard`, alias is stable)
+- Mantine 9 UI, BriconLab navy `#002961` + white
+- **현장 관리**: site table from BriconLab, 🔴 LIVE badge (polls `/api/live` every 6s), 3D model drawer, three.js USDZ viewer
+- **라이브 협업**: field screen at native aspect (`object-contain`), participants, 🎤 talk-back, click-to-annotate (포인터 / 📌 메모 modes), clear-memos
 
-- Pick an accent color (candidate: engineering orange `#FF6A00` or system blue `#0A84FF`). Decide during step 5.
-- Whether to ship a few sample USDZs alongside `highlighted_design_model.usdz` for demos.
+---
 
-## Conventions
+## 4. Architecture notes
 
-- Branch: `main` protected, features on `feat/<area>-<short>`.
-- Tag each milestone: `v0.1-ar-session`, `v0.2-placement`, ...
-- PR must include "verified on real device" checkbox.
+### iOS entity tree
+```
+AnchorEntity(world:)          ← world-fixed (NOT ARAnchor-backed — see gotchas)
+  └── placementRoot           ← all adjustment transforms applied HERE
+       └── modelEntity (USDZ)
+```
+
+### Key files
+| Area | File |
+|---|---|
+| AR session | `LHRebarAR/AR/ARSessionManager.swift`, `ARViewContainer.swift` |
+| Anchoring | `AR/ModelAnchorController.swift` (place, reanchor, collision install) |
+| Visual lock | `AR/VisualLockService.swift` (mesh extraction + point-to-plane ICP) |
+| Office memos | `AR/MemoAnnotationController.swift` (3D pins) |
+| Measurement | `Measurement/MeasurementController.swift` (+ ViewModel, DistanceMeasurement) |
+| Placement | `Placement/PlacementViewModel.swift`, `FineAdjustmentViewModel.swift`, `GestureCoordinator.swift` |
+| Backend | `Backend/BackendClient.swift`, `ModelFileStore.swift`, `BackendDTOs.swift` |
+| Live share | `Services/LiveShareService.swift`, `LiveShareConfig.swift` (gitignored) |
+| Capture | `Services/ScreenCaptureService.swift` |
+| Main AR screen | `UI/Screens/ARPlacementView.swift` (large — all overlays wired here) |
+
+### Dashboard routes
+| Route | Purpose |
+|---|---|
+| `/api/token` | Mints LiveKit JWT server-side (`room`, `identity`, `name` params). **Secret never reaches the client.** |
+| `/api/sites` | Proxy → BriconLab `analysis/site-list` |
+| `/api/models?site_id=` | Proxy → `analysis/ar-list` |
+| `/api/model?ar_id=` | Streams USDZ → `analysis/usdz` (proxy exists to dodge HTTPS→HTTP mixed content) |
+| `/api/live` | Lists active LiveKit rooms (for LIVE badges) |
+
+### Annotation data protocol (LiveKit data channel, topic `annotation`)
+```jsonc
+{"type":"ping","u":0.5,"v":0.4}                       // transient 2D marker
+{"type":"memo","u":0.5,"v":0.4,"text":"피복 확인"}      // world-locked 3D pin
+{"type":"clearMemos"}                                  // remove all pins
+```
+`u,v` are normalized to the **video content** (letterboxing excluded). The shared
+screen is the device screen, so the field app raycasts that point directly.
+
+---
+
+## 5. Hard-won gotchas (do not regress these)
+
+1. **Do NOT add `arkit` to `UIRequiredDeviceCapabilities`** — visionOS rejects it (ITMS-90984). LiDAR is enforced at runtime instead.
+2. **Never use an ARAnchor-backed `AnchorEntity` for the model.** It sits at the world origin until ARKit reports the anchor next frame; anything read in that window (fine-adjust base, visual-lock datum) captures garbage, and the model visibly teleports/vanishes. Use `AnchorEntity(world:)`. (Caused two separate field-reported bugs.)
+3. **Setting `@State` synchronously inside `makeUIView`/`onViewReady` is unreliable** — the write can be dropped. Defer with `DispatchQueue.main.async`. (This silently broke the capture button: `arViewRef` stayed nil so the guard returned with zero feedback.)
+4. **USDZ from the backend is Z-up.** RealityKit honors the `upAxis` metadata and renders it correctly — verified on device. Do not "fix" it.
+5. **three.js needs `USDLoader`, not `USDZLoader`** (deprecated in r179+), and BriconLab serves `.usdz` (the old `/analysis/fbx` endpoint is gone → 404).
+6. **Next dev server blocks cross-origin requests** — a tunneled/proxied host hangs on a loading spinner until the origin is added to `allowedDevOrigins` in `next.config.ts`.
+7. **ASC `filter[bundleId]` is a loose prefix match** — `kr.lh.rebar-ar` also returns the sibling app `kr.lh.rebarcapture`. `scripts/build_status.py` filters for the exact match; keep it that way.
+8. **Apple agreement expiry blocks uploads** with a misleading `Cannot determine the Apple ID from Bundle ID` / HTTP 403 `REQUIRED_AGREEMENTS_MISSING_OR_EXPIRED`. Fix: accept the new agreement in App Store Connect → Business, then retry (propagation can lag a few minutes). Distribution certs/profiles also expire yearly — export now uses automatic signing + `-allowProvisioningUpdates`.
+9. **Freshly minted LiveKit tokens can 401 once** (clock skew). `LiveShareService` retries the same token after 1.5s before falling back to the static demo token.
+10. **Adding a new Swift file requires `xcodegen generate`** before it compiles — a "cannot find X in scope" error on a brand-new file usually means the project wasn't regenerated.
+
+---
+
+## 6. Workflows
+
+### Ship an iOS build
+```bash
+bash scripts/release.sh          # bumps build, xcodegen, archive, export, upload
+.venv/bin/python scripts/build_status.py <build>   # poll until VALID
+```
+Auto-distributes to TestFlight testers when processing finishes.
+
+### Deploy the dashboard
+```bash
+cd office-dashboard && npm run build      # catch type errors first
+npx vercel deploy --prod --yes            # same permanent alias
+```
+
+### Regenerate LiveKit tokens
+```bash
+.venv/bin/python api/livekit_token.py <room> <identity> <name> <canPublish> <ttlSec>
+```
+The app normally fetches tokens from the dashboard at runtime; the embedded
+`devToken` in `LiveShareConfig.swift` is only a fallback.
+
+---
+
+## 7. Product decisions (settled — don't relitigate)
+
+- iOS 17+, ARKit + RealityKit + SwiftUI, **LiDAR-only**, iPhone + iPad adaptive.
+- **USDZ only**. No IFC/Revit parsing in-app.
+- **Scale locked 1:1**, pinch disabled — engineering tool.
+- **No session restoration / ARWorldMap.** Re-place on each launch.
+- **Markerless.** Physical markers were ruled out by the client; drift is handled by re-anchoring + visual lock.
+- **Auto-fitting the design model to the scan is out of scope** — the whole point is measuring as-built deviation, so matching the model to reality would be circular.
+- Debug-only UI (mesh toggle, diagnostics HUD, sample-model picker) is wrapped in `#if DEBUG` — field users see only 측정 / 공유 / 재고정 / 삭제.
+
+---
+
+## 8. Open items / next steps
+
+**Blocked on BriconLab:**
+- `POST /analysis/measurement-upload` — spec written in `api/MEASUREMENT_UPLOAD_REQUEST.md` (multipart: image + site_id + ar_id + inspector + remark + captured_at + `measurements[]` with name/points/distance/h/v/source). Once it exists, wire the capture flow to upload instead of only saving to Photos.
+
+**Ready to build when wanted:**
+- Automatic periodic re-lock (currently manual scope button)
+- Measurement depth accuracy: multi-sample averaging around the reticle to damp LiDAR noise
+- Memo v3: edit/delete individual pins, persist memos to the backend
+- Company domain on the dashboard (Vercel → add domain + DNS record)
+- Version bump to 0.2.0 at the next feature milestone (still 0.1.0 through build 27)
+
+**Field-test feedback status** (`TalkFile_어플 테스트 결과.pdf`): all AR-app items resolved
+(button removals, label occlusion, fine-adjust reset, Visual SLAM). The LiDAR
+scan app section of that document belongs to a **different repo and is out of scope here**.
+
+---
+
+## 9. External accounts / IDs
+
+| Thing | Value |
+|---|---|
+| Bundle ID | `kr.lh.rebar-ar` |
+| Apple team | `G88CPAZ3MP` |
+| ASC app | LH Rebar AR (`6763446019`) — sibling `Rebar Capture` (`kr.lh.rebarcapture`) is a **different** app, don't touch |
+| ASC API key | `5J8MLZ4426`, issuer `40dabd9c-8645-44e4-9754-c6eefe759320` |
+| LiveKit | project `ar-w5h0quhi`, `wss://ar-w5h0quhi.livekit.cloud` |
+| Vercel | project `office-dashboard`, alias `office-dashboard-xi.vercel.app` |
+| BriconLab API | `http://api.briconlab.com:50001` (plain HTTP → ATS exception + server-side proxy) |
+
+---
+
+## 10. Conventions
+
+- Branch `main`; features on `feat/<area>-<short>`.
+- Numeric readouts in SF Mono; engineering monochrome + orange accent.
+- Fine-adjust state stored as integer 1/10 mm and 1/10° (no float drift).
+- Simulator has no ARKit — device testing is mandatory for anything AR.
+- Verify claims on device/real endpoints before reporting them as working.
