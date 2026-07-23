@@ -32,15 +32,14 @@ final class ModelAnchorController {
         guard let arView else { return nil }
         removeCurrent()
 
-        let anchor = ARAnchor(name: Self.arAnchorName, transform: worldTransform)
-        arView.session.add(anchor: anchor)
-
-        let anchorEntity = AnchorEntity(anchor: anchor)
-        // Seed the pose immediately: until ARKit reports the freshly added
-        // anchor (next frame), the AnchorEntity would sit at the world origin —
-        // any synchronous read (fine-adjust base, visual-lock datum) taken in
-        // that window would capture garbage near the user's start position.
-        anchorEntity.transform = Transform(matrix: worldTransform)
+        // World-anchored, NOT ARAnchor-backed. RealityKit only renders content
+        // bound to an ARAnchor while that anchor is actively tracked, so in
+        // low-feature / narrow spaces the model vanished a few seconds after
+        // placement (ARKit relocalizes → anchor goes untracked → content
+        // hidden). A world anchor is positioned in the session's world space
+        // with no per-anchor tracking lifecycle, so it stays visible; drift is
+        // handled by re-anchoring + visual lock. Mirrors reanchor().
+        let anchorEntity = AnchorEntity(world: worldTransform)
         let root = Entity()
         root.name = Self.placementRootName
         model.name = Self.modelEntityName
@@ -53,7 +52,7 @@ final class ModelAnchorController {
         // a point onto the design surface (model↔structure measuring).
         Self.installCollision(on: model)
 
-        self.arAnchor = anchor
+        self.arAnchor = nil
         self.anchorEntity = anchorEntity
         self.placementRoot = root
         self.modelEntity = model
