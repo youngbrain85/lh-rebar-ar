@@ -4,7 +4,7 @@ Auto-loaded by Claude Code in this directory. It carries decisions, hard-won
 gotchas, and the current plan across machines/sessions so a fresh session can
 continue without re-deriving anything.
 
-**Last updated**: 2026-07-21 · iOS build 27 on TestFlight · dashboard live on Vercel.
+**Last updated**: 2026-07-23 · iOS build 29 on TestFlight · dashboard live on Vercel.
 
 ---
 
@@ -70,7 +70,8 @@ Working and verified on device:
 - **Measurement** — Apple-Measure-style reticle + `+` button; real↔real and **model↔real** (green reticle = model surface); total + horizontal/vertical breakdown; per-measurement **name** prompt; compact white label showing `#N 283mm` offset perpendicular to the line
 - **Screen capture** — snapshot + footer annotation listing named measurements → Photos
 - **Backend** — site list → model list → USDZ download/cache → AR
-- **Live share** — in-app ReplayKit capture → LiveKit; per-site rooms (`site-<id>`); mic both ways; receives office pings (2D) and memos (world-locked 3D pins)
+- **Live share** — in-app ReplayKit capture → LiveKit; per-site rooms (`site-<id>`); **video-first, mic is an opt-in toggle** (mic never blocks the share — see gotcha #11); two-way voice; receives office pings (2D) and memos (world-locked 3D pins)
+- **Model origin** — every loaded model is re-pivoted to the **bottom-center of its bbox** (concrete base bottom face) at load time (`ModelLoader.normalizedToBottomCenter`), so it sits on the tapped surface regardless of source authoring
 
 ### Dashboard — deployed, permanent URL
 
@@ -136,6 +137,7 @@ screen is the device screen, so the field app raycasts that point directly.
 8. **Apple agreement expiry blocks uploads** with a misleading `Cannot determine the Apple ID from Bundle ID` / HTTP 403 `REQUIRED_AGREEMENTS_MISSING_OR_EXPIRED`. Fix: accept the new agreement in App Store Connect → Business, then retry (propagation can lag a few minutes). Distribution certs/profiles also expire yearly — export now uses automatic signing + `-allowProvisioningUpdates`.
 9. **Freshly minted LiveKit tokens can 401 once** (clock skew). `LiveShareService` retries the same token after 1.5s before falling back to the static demo token.
 10. **Adding a new Swift file requires `xcodegen generate`** before it compiles — a "cannot find X in scope" error on a brand-new file usually means the project wasn't regenerated.
+11. **Do NOT enable the mic at LiveKit connect.** `ConnectOptions(enableMicrophone: true)` starts the audio engine during connect and can throw "Audio engine returned error code: -9000" on some devices/routes (Bluetooth, first-run permission race, init timing — LiveKit issue #849 family), which aborted the entire screen share. The mic is now **opt-in**: `LiveShareService.toggleMic()` enables it separately and swallows failures. Screen sharing must always work without the mic. (If robust always-on two-way voice is ever needed, set `AudioManager.shared.sessionConfiguration` explicitly — `.playAndRecord` / `.videoChat` / `.allowBluetooth` — instead of reverting this.)
 
 ---
 

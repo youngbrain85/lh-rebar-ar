@@ -17,14 +17,38 @@ enum ModelLoadError: LocalizedError {
 enum ModelLoader {
     @MainActor
     static func load(_ model: RebarModel) async throws -> Entity {
+        let entity: Entity
         // Prefer an on-disk file (downloaded USDZ) when provided.
         if let local = model.localURL {
-            return try await loadEntity(at: local)
+            entity = try await loadEntity(at: local)
+        } else {
+            guard let url = resolveURL(for: model) else {
+                throw ModelLoadError.notFound(model.resourceName)
+            }
+            entity = try await loadEntity(at: url)
         }
-        guard let url = resolveURL(for: model) else {
-            throw ModelLoadError.notFound(model.resourceName)
-        }
-        return try await loadEntity(at: url)
+        return normalizedToBottomCenter(entity)
+    }
+
+    /// Re-pivots a loaded model so its origin sits at the **bottom-center of its
+    /// bounding box** — i.e. the concrete base's bottom face, center. This makes
+    /// every model (backend USDZ or bundled sample) sit on the tapped surface
+    /// consistently, regardless of where the source asset authored its origin.
+    ///
+    /// The model is wrapped in a parent whose origin becomes the pivot; the
+    /// geometry is shifted within it. Idempotent for assets already pivoted at
+    /// bottom-center (offset ≈ 0). Fine-adjustment / anchoring act on the
+    /// placementRoot above this, so they are unaffected.
+    @MainActor
+    private static func normalizedToBottomCenter(_ entity: Entity) -> Entity {
+        let wrapper = Entity()
+        wrapper.addChild(entity)
+        let bounds = entity.visualBounds(relativeTo: wrapper)
+        let e = bounds.extents
+        guard e.x > 0, e.y > 0, e.z > 0 else { return wrapper }
+        let bottomCenter = SIMD3<Float>(bounds.center.x, bounds.min.y, bounds.center.z)
+        entity.position -= bottomCenter
+        return wrapper
     }
 
     @MainActor

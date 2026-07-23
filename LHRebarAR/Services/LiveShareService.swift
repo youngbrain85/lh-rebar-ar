@@ -28,6 +28,12 @@ final class LiveShareService: NSObject, ObservableObject {
     /// Markers received from the office; the AR screen overlays and expires them.
     @Published private(set) var annotations: [LiveAnnotation] = []
 
+    /// Whether the field microphone is currently publishing. Mic is **opt-in**
+    /// (a toggle) and is NOT enabled at connect: enabling it during connect
+    /// could fail the whole share with an audio-engine error (-9000) on some
+    /// devices/routes. Screen sharing must never depend on the mic.
+    @Published private(set) var micEnabled = false
+
     /// Office memo → world-locked 3D pin. Wired by the AR screen; falls back to
     /// a 2D ping when the handler is absent or placement fails (no surface).
     var memoHandler: ((_ u: Double, _ v: Double, _ text: String) -> Bool)?
@@ -81,10 +87,13 @@ final class LiveShareService: NSObject, ObservableObject {
                 try? await Task.sleep(nanoseconds: 1_500_000_000)
             }
             do {
+                // Connect with the mic OFF — video-first. The mic is a separate
+                // opt-in toggle so an audio-engine failure can never abort the
+                // screen share.
                 try await room.connect(
                     url: LiveShareConfig.serverURL,
                     token: attempt.token,
-                    connectOptions: ConnectOptions(enableMicrophone: true)
+                    connectOptions: ConnectOptions(enableMicrophone: false)
                 )
                 // In-app screen capture (prompts the system recording permission).
                 try await room.localParticipant.setScreenShare(enabled: true)
@@ -101,6 +110,24 @@ final class LiveShareService: NSObject, ObservableObject {
         await room.disconnect()
         state = .idle
         annotations = []
+        micEnabled = false
+    }
+
+    /// Toggles the field microphone (opt-in two-way voice). A failure here must
+    /// NOT affect the ongoing screen share — we simply leave the mic off and
+    /// report failure so the UI can inform the user.
+    @discardableResult
+    func toggleMic() async -> Bool {
+        guard isSharing else { return false }
+        let next = !micEnabled
+        do {
+            try await room.localParticipant.setMicrophone(enabled: next)
+            micEnabled = next
+            return true
+        } catch {
+            micEnabled = false
+            return false
+        }
     }
 
     /// Drops annotations older than their display window.

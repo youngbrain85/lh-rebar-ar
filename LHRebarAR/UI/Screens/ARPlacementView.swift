@@ -289,6 +289,7 @@ struct ARPlacementView: View {
             #endif
             measurementToggle
             liveShareToggle
+            if liveShare.isSharing { micToggle }
             if placementActive { relockButton }
             if case .placed = placement.state { removeButton }
             if case .adjusting = placement.state { removeButton }
@@ -362,6 +363,27 @@ struct ARPlacementView: View {
                 .background(LHColors.overlay, in: Circle())
         }
         .accessibilityLabel("오피스와 화면 공유")
+    }
+
+    /// Opt-in field microphone (two-way voice), shown only while sharing.
+    /// Failing to start the mic never affects the ongoing screen share.
+    private var micToggle: some View {
+        Button {
+            HapticsService.shared.impact()
+            Task {
+                let ok = await liveShare.toggleMic()
+                if !ok {
+                    showCaptureToast("음성 시작 실패 — 영상 공유는 유지됩니다")
+                }
+            }
+        } label: {
+            Image(systemName: liveShare.micEnabled ? "mic.fill" : "mic.slash.fill")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(liveShare.micEnabled ? .red : .white)
+                .frame(width: LHSpacing.iconChip, height: LHSpacing.iconChip)
+                .background(LHColors.overlay, in: Circle())
+        }
+        .accessibilityLabel("음성 말하기")
     }
 
     @ViewBuilder
