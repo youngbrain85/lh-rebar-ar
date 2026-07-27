@@ -18,12 +18,12 @@ struct ARViewContainer: UIViewRepresentable {
             automaticallyConfigureSession: false
         )
         arView.renderOptions = [.disableMotionBlur, .disableHDR]
-        // `.collision` only — NOT `.occlusion`. Occlusion let the LiDAR mesh of
-        // nearby real surfaces hide the design model (it vanished in tight
-        // spaces). For a rebar-QA overlay we always want the model visible,
-        // even "through" formwork/concrete, so the design can be compared to
-        // the as-built. `.collision` stays for placement + measurement raycasts.
-        arView.environment.sceneUnderstanding.options = [.collision]
+        // Occlusion ON: the LiDAR mesh of real surfaces hides parts of the
+        // design model behind them, for realistic depth. NOTE: the "model
+        // vanished in tight spaces" bug was NOT occlusion — it was the
+        // placement being bound to an ARAnchor that lost tracking; fixed by
+        // world-anchoring in ModelAnchorController (place + reanchor).
+        arView.environment.sceneUnderstanding.options = [.occlusion, .collision]
         arView.session.delegate = context.coordinator
 
         context.coordinator.installCoachingOverlay(on: arView)

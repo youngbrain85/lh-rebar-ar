@@ -4,7 +4,7 @@ Auto-loaded by Claude Code in this directory. It carries decisions, hard-won
 gotchas, and the current plan across machines/sessions so a fresh session can
 continue without re-deriving anything.
 
-**Last updated**: 2026-07-23 · iOS build 29 on TestFlight · dashboard live on Vercel.
+**Last updated**: 2026-07-23 · iOS build 32 on TestFlight · dashboard live on Vercel.
 
 ---
 
@@ -128,7 +128,7 @@ screen is the device screen, so the field app raycasts that point directly.
 ## 5. Hard-won gotchas (do not regress these)
 
 1. **Do NOT add `arkit` to `UIRequiredDeviceCapabilities`** — visionOS rejects it (ITMS-90984). LiDAR is enforced at runtime instead.
-2. **Never use an ARAnchor-backed `AnchorEntity` for the model.** It sits at the world origin until ARKit reports the anchor next frame; anything read in that window (fine-adjust base, visual-lock datum) captures garbage, and the model visibly teleports/vanishes. Use `AnchorEntity(world:)`. (Caused two separate field-reported bugs.)
+2. **Never bind the model to an ARAnchor — use `AnchorEntity(world:)`** in BOTH `place()` and `reanchor()`. ARAnchor-backed content (a) sits at the world origin until ARKit reports the anchor next frame — a synchronous read of the fine-adjust base / visual-lock datum in that window captures garbage; and (b) is only rendered while the anchor is actively *tracked*, so in low-feature / narrow spaces the model appears for a few seconds then **vanishes** as ARKit relocalizes. World anchors have neither problem; drift is handled by re-anchoring + visual lock. (Three separate field-reported bugs traced to this — teleport-on-adjust, blink-on-reanchor, vanish-in-narrow-space.)
 3. **Setting `@State` synchronously inside `makeUIView`/`onViewReady` is unreliable** — the write can be dropped. Defer with `DispatchQueue.main.async`. (This silently broke the capture button: `arViewRef` stayed nil so the guard returned with zero feedback.)
 4. **USDZ from the backend is Z-up.** RealityKit honors the `upAxis` metadata and renders it correctly — verified on device. Do not "fix" it.
 5. **three.js needs `USDLoader`, not `USDZLoader`** (deprecated in r179+), and BriconLab serves `.usdz` (the old `/analysis/fbx` endpoint is gone → 404).
@@ -174,6 +174,7 @@ The app normally fetches tokens from the dashboard at runtime; the embedded
 - **Markerless.** Physical markers were ruled out by the client; drift is handled by re-anchoring + visual lock.
 - **Auto-fitting the design model to the scan is out of scope** — the whole point is measuring as-built deviation, so matching the model to reality would be circular.
 - Debug-only UI (mesh toggle, diagnostics HUD, sample-model picker) is wrapped in `#if DEBUG` — field users see only 측정 / 공유 / 재고정 / 삭제.
+- **Scene occlusion is ON** (`sceneUnderstanding.options = [.occlusion, .collision]`): the design model is hidden behind real surfaces for depth realism. We briefly disabled it while chasing the vanish bug, then rolled back once the real cause (anchor tracking, gotcha #2) was found. If a future request is "the model hides behind real stuff, I want to always see it," that's this flag — consider a toggle rather than removing it.
 
 ---
 
