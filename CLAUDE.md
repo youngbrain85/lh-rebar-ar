@@ -24,6 +24,24 @@ Live video/audio/data runs over **LiveKit Cloud** (`wss://ar-w5h0quhi.livekit.cl
 
 ## 2. Setup on a new machine (READ FIRST)
 
+### Windows vs macOS — what runs where
+
+| Task | Windows | macOS |
+|---|---|---|
+| Edit Swift / TS / Python, git | ✅ | ✅ |
+| **office-dashboard** dev + `vercel deploy` | ✅ | ✅ |
+| Python helpers (token, build status) | ✅ | ✅ |
+| **iOS build / archive / TestFlight upload** | ❌ Xcode is macOS-only | ✅ |
+
+**To release the iOS app from Windows (no local Mac): use the CI.** The GitHub
+Actions workflow `.github/workflows/ios-testflight.yml` builds + uploads to
+TestFlight on a macOS runner. Trigger it from the Actions tab → "Run workflow",
+or `gh workflow run ios-testflight.yml`. It needs the repo secrets listed in
+§6 → CI (notably an **Admin** ASC API key — the upload-only key `5J8MLZ4426`
+cannot cloud-sign). Local `scripts/release.sh` is the Mac-only equivalent.
+
+### Secrets to restore
+
 Secrets are gitignored, so a fresh clone does **not** build/run until you restore
 them. Bring these over from the original machine (1Password/AirDrop/etc — never
 commit them):
@@ -144,11 +162,25 @@ screen is the device screen, so the field app raycasts that point directly.
 ## 6. Workflows
 
 ### Ship an iOS build
+**On a Mac:**
 ```bash
 bash scripts/release.sh          # bumps build, xcodegen, archive, export, upload
 .venv/bin/python scripts/build_status.py <build>   # poll until VALID
 ```
-Auto-distributes to TestFlight testers when processing finishes.
+**From anywhere (CI, incl. Windows):** Actions tab → run **iOS TestFlight**, or
+`gh workflow run ios-testflight.yml`. Auto-distributes when processing finishes.
+
+### CI (GitHub Actions → `ios-testflight.yml`)
+macOS runner: restores gitignored secrets → xcodegen → next build number (ASC
+query, `scripts/next_build.py`) → archive + export with **API-key cloud
+signing** → altool upload. Required repo secrets (`gh secret set NAME`):
+
+| Secret | What |
+|---|---|
+| `ASC_KEY_ID` | ASC API key ID — **Admin** access (cloud signing needs it; `5J8MLZ4426` is upload-only and returns "Cloud signing permission error") |
+| `ASC_ISSUER_ID` | `40dabd9c-8645-44e4-9754-c6eefe759320` |
+| `ASC_API_KEY_P8` | the key's `.p8` contents |
+| `LIVESHARE_CONFIG_SWIFT` | contents of `LHRebarAR/Services/LiveShareConfig.swift` (gitignored) |
 
 ### Deploy the dashboard
 ```bash

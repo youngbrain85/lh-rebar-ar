@@ -1,0 +1,106 @@
+name: iOS TestFlight
+
+# Build the iOS app and upload it to TestFlight from a macOS runner, so the app
+# can be released without a local Mac (e.g. from Windows). Trigger it from the
+# GitHub Actions tab ("Run workflow") or with `gh workflow run ios-testflight.yml`.
+#
+# Requires these repository secrets (see CLAUDE.md → CI):
+#   ASC_KEY_ID            App Store Connect API key ID (Admin access — needed
+#                         for cloud signing, not just the upload-only key)
+#   ASC_ISSUER_ID         ASC API issuer ID
+#   ASC_API_KEY_P8        the key's .p8 file contents
+#   LIVESHARE_CONFIG_SWIFT  contents of LHRebarAR/Services/LiveShareConfig.swift
+#                           (gitignored, required to compile)
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ios-testflight
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select newest Xcode
+        run: |
+          sudo xcode-select -s "$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -1)" || true
+          xcodebuild -version
+
+      - name: Install tools
+        run: |
+          brew install xcodegen
+          python3 -m pip install --break-system-packages pyjwt || python3 -m pip install pyjwt
+
+      - name: Restore gitignored secrets
+        env:
+          LIVESHARE_CONFIG_SWIFT: ${{ secrets.LIVESHARE_CONFIG_SWIFT }}
+          ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$LIVESHARE_CONFIG_SWIFT" > LHRebarAR/Services/LiveShareConfig.swift
+          mkdir -p "$HOME/.appstoreconnect/private_keys"
+          printf '%s' "$ASC_API_KEY_P8" > "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8"
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Compute next build number
+        id: bump
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          N="$(python3 scripts/next_build.py)"
+          echo "Next build number: $N"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $N" LHRebarAR/Info.plist
+
+      - name: Archive
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          xcodebuild archive \
+            -project LHRebarAR.xcodeproj -scheme LHRebarAR \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath build/LHRebarAR.xcarchive \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+
+      - name: Export IPA
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          xcodebuild -exportArchive \
+            -archivePath build/LHRebarAR.xcarchive \
+            -exportOptionsPlist ExportOptions.plist \
+            -exportPath build/export \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+
+      - name: Upload to TestFlight
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          xcrun altool --upload-app --type ios \
+            --file build/export/LHRebarAR.ipa \
+            --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
