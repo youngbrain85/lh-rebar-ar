@@ -54,7 +54,7 @@ describe("icpRefine + registerScan", () => {
     expect(r.rmsMm).toBeLessThan(5);
   });
   it("verifies recovered points land on design (round-trip <2mm)", () => {
-    const design = makeWallGrid();
+    const design = offsetRebar(makeWallGrid(), "d-v-outer-0", [0, 0.4, 0]);
     const scan = transformRebars(design, rigidMat4(45, [2, -1, 0.7]));
     const { matrix } = icpRefine(scan, design, coarseRegister(scan, design));
     const p = applyMat4(matrix, scan[5].centerline[0]);
