@@ -41,7 +41,7 @@ office-dashboard API 라우트 ──── Vercel Blob
    ▼
 시공 분석 탭 (클라이언트)
    ├─ 설계모델: 기존 /api/model?ar_id= (BriconLab USDZ 프록시) 재사용
-   ├─ 분석 엔진: src/lib/analysis/* 순수 TS → Web Worker에서 실행
+   ├─ 분석 엔진: src/lib/analysis/* 순수 TS → 메인스레드 실행 (실측 <100ms; Turbopack 워커 번들 미지원 확인)
    └─ 뷰어: three.js (기존 ModelViewer 패턴 재사용) + Mantine UI
 ```
 
@@ -58,7 +58,6 @@ lib/analysis/registration.ts      # 코스(PCA+플립 채점) + 파인(point-to-
 lib/analysis/classify.ts          # 방향/레이어 분류
 lib/analysis/match.ts             # 분류 그룹 내 1:1 매칭, 미시공/도면외 판별
 lib/analysis/judge.ts             # 허용오차 판정 + 요약통계 (재판정 전용, 빠름)
-lib/analysis/worker.ts            # Web Worker 엔트리 (파이프라인 오케스트레이션)
 components/analysis/AnalysisView.tsx    # 분석 화면 (3D + 카드 + 테이블 + 슬라이더)
 components/analysis/AnalysisViewer.tsx  # three.js 오버레이 뷰어
 components/analysis/ScanList.tsx        # 사이트별 스캔 목록

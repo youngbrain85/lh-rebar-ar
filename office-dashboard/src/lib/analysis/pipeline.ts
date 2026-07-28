@@ -1,4 +1,4 @@
-// 분석 파이프라인 진입점 — spec §5. worker.ts와 UI가 이 함수만 호출한다.
+// 분석 파이프라인 진입점 — spec §5. useAnalysis 훅(메인스레드)이 이 함수만 호출한다.
 import { classifyRebars, estimateWallNormal } from "./classify";
 import { applyMat4 } from "./geom";
 import { judge } from "./judge";

@@ -1,44 +1,24 @@
 // office-dashboard/src/components/analysis/useAnalysis.ts
 "use client";
 
-// Worker 기반 분석 실행 훅. Worker 불가 환경은 메인스레드 폴백.
-import { useCallback, useRef, useState } from "react";
+// 분석 실행 훅 — 메인스레드에서 실행한다.
+// 실측 분석 시간이 실데이터 규모에서 100ms 미만이라 Web Worker를 쓰지 않는다
+// (Next 16.2.7 Turbopack이 worker 번들을 지원하지 않는 것도 확인됨 — task-15-report 참조).
+import { useCallback, useState } from "react";
 import type { AnalysisInput, AnalysisOutput } from "../../lib/analysis/pipeline";
 
 export function useAnalysis() {
   const [stage, setStage] = useState<string | null>(null);
-  const workerRef = useRef<Worker | null>(null);
 
   const run = useCallback(async (input: AnalysisInput): Promise<AnalysisOutput> => {
     setStage("register");
+    // 스피너가 그려질 수 있게 한 프레임 양보
+    await new Promise((r) => setTimeout(r, 0));
     try {
-      const worker =
-        workerRef.current ??
-        new Worker(new URL("../../lib/analysis/worker.ts", import.meta.url));
-      workerRef.current = worker;
-      return await new Promise<AnalysisOutput>((resolve, reject) => {
-        worker.onmessage = (e) => {
-          if (e.data.type === "progress") setStage(e.data.stage);
-          else if (e.data.type === "done") {
-            setStage(null);
-            resolve(e.data.output);
-          } else if (e.data.type === "error") {
-            setStage(null);
-            reject(new Error(e.data.message));
-          }
-        };
-        worker.onerror = (e) => {
-          setStage(null);
-          reject(new Error(e.message || "worker error"));
-        };
-        worker.postMessage(input);
-      });
-    } catch {
-      // Worker 생성/번들 실패 폴백: 메인스레드 실행
       const { runAnalysis } = await import("../../lib/analysis/pipeline");
-      const out = runAnalysis(input);
+      return runAnalysis(input);
+    } finally {
       setStage(null);
-      return out;
     }
   }, []);
 
