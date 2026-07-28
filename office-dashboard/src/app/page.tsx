@@ -22,6 +22,7 @@ import {
 } from "@mantine/core";
 import dynamic from "next/dynamic";
 import LiveSession from "../components/LiveSession";
+import AnalysisTab from "../components/analysis/AnalysisTab";
 
 // three.js is heavy and browser-only — load it lazily when the 3D modal opens
 // so it stays out of the initial bundle.
@@ -39,7 +40,7 @@ type ARModel = {
   ar_type: string;
   upload_at: string;
 };
-type View = "sites" | "live";
+type View = "sites" | "live" | "analysis";
 
 const DEMO_ROOM = "ar-demo";
 
@@ -96,6 +97,13 @@ export default function Page() {
           onClick={() => setView("live")}
           leftSection={<Text size="sm">◉</Text>}
         />
+        <NavLink
+          label="시공 분석"
+          description="설계 vs 시공 비교"
+          active={view === "analysis"}
+          onClick={() => setView("analysis")}
+          leftSection={<Text size="sm">▥</Text>}
+        />
         <Box mt="auto" p="xs">
           <Text size="xs" c="dimmed">
             LiveKit · ar-w5h0quhi
@@ -114,6 +122,8 @@ export default function Page() {
               setView("live");
             }}
           />
+        ) : view === "analysis" ? (
+          <AnalysisTab />
         ) : (
           <Box h="calc(100dvh - 58px - 2 * var(--mantine-spacing-md))">
             <LiveSession room={liveRoom} onLeave={() => setView("sites")} />
