@@ -54,6 +54,7 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
   const [savedRecords, setSavedRecords] = useState<RebarRecord[] | null>(null);
   const [tolerance, setTolerance] = useState(10);
   const [error, setError] = useState<string | null>(null);
+  const [saveWarning, setSaveWarning] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [showVerdicts, setShowVerdicts] = useState<Verdict[]>(ALL_VERDICTS);
   const [showMesh, setShowMesh] = useState(false);
@@ -104,6 +105,7 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
     async (manualInit?: Mat4) => {
       if (!designRebars || !scanRebars) return;
       setError(null);
+      setSaveWarning(null);
       try {
         const out = await run({
           design: designRebars, scan: scanRebars,
@@ -123,9 +125,18 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
             rebars: out.rebars,
             summary: out.summary,
           };
-          await fetch(`/api/analysis-result?site_id=${scan.site_id}&scan_id=${scan.scan_id}`, {
-            method: "PUT", body: JSON.stringify(result),
-          });
+          try {
+            const saveRes = await fetch(
+              `/api/analysis-result?site_id=${scan.site_id}&scan_id=${scan.scan_id}`,
+              { method: "PUT", body: JSON.stringify(result) },
+            );
+            if (!saveRes.ok) {
+              const d = await saveRes.json().catch(() => null);
+              setSaveWarning(d?.message ?? `결과 저장 실패 (HTTP ${saveRes.status})`);
+            }
+          } catch (e) {
+            setSaveWarning(e instanceof Error ? e.message : String(e));
+          }
         }
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
@@ -201,6 +212,11 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
         </Group>
 
         {error && <Alert color="red">{error}</Alert>}
+        {saveWarning && (
+          <Alert color="yellow" title="분석은 완료됐지만 결과 저장에 실패했습니다">
+            {saveWarning}
+          </Alert>
+        )}
 
         {output?.registration.failed && (
           <Alert color="orange" title="자동 정합 실패 — 수동 초기정합">
