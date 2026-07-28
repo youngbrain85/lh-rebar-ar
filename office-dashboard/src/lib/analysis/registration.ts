@@ -1,7 +1,7 @@
 // 정합 — spec §5.2. 코스: PCA 주축 + 4플립 채점. (파인 ICP는 Task 6에서 추가)
 import {
-  applyMat4, cross, dot, mat4FromRotTrans, normalize, pca,
-  pointToPolyline, samplePolyline, scale, sub,
+  add, applyMat4, cross, dot, mat4FromRotTrans, mat4Multiply, normalize, pca,
+  pointToPolyline, samplePolyline, scale, sub, jacobiEigen,
 } from "./geom";
 import type { Mat4, Rebar, Vec3 } from "./types";
 
@@ -77,4 +77,123 @@ export function coarseRegister(scan: Rebar[], design: Rebar[]): Mat4 {
     }
   }
   return best!;
+}
+
+/** 최근접점: p에서 design 전체 폴리라인 중 가장 가까운 점 (선분 위 투영점) */
+function closestPointOnDesign(p: Vec3, design: Rebar[]): Vec3 {
+  let best: Vec3 = design[0].centerline[0];
+  let bestD = Infinity;
+  for (const r of design) {
+    const line = r.centerline;
+    if (line.length === 1) {
+      const d2 = dot(sub(p, line[0]), sub(p, line[0]));
+      if (d2 < bestD) {
+        bestD = d2;
+        best = line[0];
+      }
+    } else {
+      for (let i = 0; i + 1 < line.length; i++) {
+        const a = line[i], b = line[i + 1];
+        const ab = sub(b, a);
+        const len2 = dot(ab, ab);
+        const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, dot(sub(p, a), ab) / len2));
+        const q = add(a, scale(ab, t));
+        const d2 = dot(sub(p, q), sub(p, q));
+        if (d2 < bestD) {
+          bestD = d2;
+          best = q;
+        }
+      }
+    }
+  }
+  return best;
+}
+
+/** Horn 쿼터니언 절대정위: 대응점쌍 최적 강체변환 (row-major 3x3 R + t) */
+function hornRigid(from: Vec3[], to: Vec3[]): { r: number[]; t: Vec3 } {
+  const n = from.length;
+  const cf: Vec3 = [0, 0, 0], ct: Vec3 = [0, 0, 0];
+  for (let i = 0; i < n; i++) {
+    for (let k = 0; k < 3; k++) {
+      cf[k] += from[i][k] / n;
+      ct[k] += to[i][k] / n;
+    }
+  }
+  // 교차공분산 S
+  const S = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+  for (let i = 0; i < n; i++) {
+    const a = sub(from[i], cf), b = sub(to[i], ct);
+    for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) S[r][c] += a[r] * b[c];
+  }
+  const [Sxx, Sxy, Sxz] = S[0], [Syx, Syy, Syz] = S[1], [Szx, Szy, Szz] = S[2];
+  const N = [
+    [Sxx + Syy + Szz, Syz - Szy, Szx - Sxz, Sxy - Syx],
+    [Syz - Szy, Sxx - Syy - Szz, Sxy + Syx, Szx + Sxz],
+    [Szx - Sxz, Sxy + Syx, -Sxx + Syy - Szz, Syz + Szy],
+    [Sxy - Syx, Szx + Sxz, Syz + Szy, -Sxx - Syy + Szz],
+  ];
+  const { vectors } = jacobiEigen(N);
+  const [w, x, y, z] = vectors[0]; // 최대 고유값의 고유벡터 = 최적 쿼터니언
+  const r = [
+    1 - 2 * (y * y + z * z), 2 * (x * y - w * z), 2 * (x * z + w * y),
+    2 * (x * y + w * z), 1 - 2 * (x * x + z * z), 2 * (y * z - w * x),
+    2 * (x * z - w * y), 2 * (y * z + w * x), 1 - 2 * (x * x + y * y),
+  ];
+  const rc: Vec3 = [
+    r[0] * cf[0] + r[1] * cf[1] + r[2] * cf[2],
+    r[3] * cf[0] + r[4] * cf[1] + r[5] * cf[2],
+    r[6] * cf[0] + r[7] * cf[1] + r[8] * cf[2],
+  ];
+  return { r, t: sub(ct, rc) };
+}
+
+export function icpRefine(
+  scan: Rebar[], design: Rebar[], init: Mat4,
+): { matrix: Mat4; rmsMm: number; iterations: number } {
+  const samples: Vec3[] = [];
+  for (const r of scan) samples.push(...samplePolyline(r.centerline, 8));
+  let m = init;
+  let prevRms = Infinity;
+  let iterations = 0;
+  for (let iter = 0; iter < 20; iter++) {
+    iterations = iter + 1;
+    const from: Vec3[] = [];
+    const to: Vec3[] = [];
+    let sum2 = 0;
+    for (const p of samples) {
+      const tp = applyMat4(m, p);
+      const q = closestPointOnDesign(tp, design);
+      from.push(tp);
+      to.push(q);
+      const d = sub(tp, q);
+      sum2 += dot(d, d);
+    }
+    const rms = Math.sqrt(sum2 / samples.length);
+    if (Math.abs(prevRms - rms) < 0.0001) { // ΔRMS < 0.1mm
+      prevRms = rms;
+      break;
+    }
+    prevRms = rms;
+    const { r, t } = hornRigid(from, to);
+    m = mat4Multiply(mat4FromRotTrans(r, t), m);
+  }
+  return { matrix: m, rmsMm: prevRms * 1000, iterations };
+}
+
+export function registerScan(
+  scan: Rebar[], design: Rebar[], manualInit?: Mat4,
+): { matrix: Mat4; rmsMm: number; method: "auto" | "manual"; failed: boolean } {
+  if (isDegenerate(scan) || isDegenerate(design)) {
+    return { matrix: manualInit ?? coarseInitSafe(scan, design), rmsMm: Infinity, method: manualInit ? "manual" : "auto", failed: true };
+  }
+  const init = manualInit ?? coarseRegister(scan, design);
+  const { matrix, rmsMm } = icpRefine(scan, design, init);
+  return { matrix, rmsMm, method: manualInit ? "manual" : "auto", failed: rmsMm > 30 };
+}
+
+/** 퇴화 시에도 안전한 초기값: 평균점 이동만 */
+function coarseInitSafe(scan: Rebar[], design: Rebar[]): Mat4 {
+  const s = pca(allSamples(scan)).mean;
+  const d = pca(allSamples(design)).mean;
+  return mat4FromRotTrans([1, 0, 0, 0, 1, 0, 0, 0, 1], sub(d, s));
 }
