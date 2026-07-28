@@ -22,7 +22,7 @@ describe("coarseRegister", () => {
   });
   it("asymmetric grid still registers (flip discrimination exercised)", () => {
     const design = offsetRebar(makeWallGrid(), "d-v-outer-0", [0, 0.4, 0]);
-    const scan = transformRebars(design, rigidMat4(30, [1.2, 0.4, -0.8]));
+    const scan = transformRebars(design, rigidMat4(90, [1.2, 0.4, -0.8]));
     const m = coarseRegister(scan, design);
     expect(coarseCost(scan, design, m)).toBeLessThan(0.02);
   });
