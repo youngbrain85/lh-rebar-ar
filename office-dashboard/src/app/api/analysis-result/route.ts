@@ -75,8 +75,9 @@ export async function PUT(req: Request) {
   }
 
   try {
+    // allowOverwrite: 같은 스캔을 재분석하면 기존 결과를 덮어쓴다
     await put(`scans/${k.siteId}/${k.scanId}/analysis-result.json`, body, {
-      access: "public", addRandomSuffix: false, contentType: "application/json",
+      access: "public", addRandomSuffix: false, allowOverwrite: true, contentType: "application/json",
     });
   } catch (e) {
     return NextResponse.json(

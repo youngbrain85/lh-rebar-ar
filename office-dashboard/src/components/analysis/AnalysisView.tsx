@@ -11,6 +11,7 @@ import {
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type * as THREE from "three";
 import { rejudgeRecords } from "../../lib/analysis/judge";
+import { assignLabels } from "../../lib/analysis/label";
 import type { AnalysisOutput } from "../../lib/analysis/pipeline";
 import { parseRebarsJson } from "../../lib/analysis/rebarsSchema";
 import type {
@@ -52,6 +53,7 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
   const [meshUrl, setMeshUrl] = useState<string | null>(null);
   const [output, setOutput] = useState<AnalysisOutput | null>(null);
   const [savedRecords, setSavedRecords] = useState<RebarRecord[] | null>(null);
+  const [savedMatrix, setSavedMatrix] = useState<number[] | null>(null);
   const [tolerance, setTolerance] = useState(10);
   const [error, setError] = useState<string | null>(null);
   const [saveWarning, setSaveWarning] = useState<string | null>(null);
@@ -92,6 +94,9 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
           ) {
             setSavedRecords(prev.rebars);
             setTolerance(prev.toleranceMm);
+            if (Array.isArray(prev.registration?.matrix) && prev.registration.matrix.length === 16) {
+              setSavedMatrix(prev.registration.matrix);
+            }
           }
         }
       } catch (e) {
@@ -116,6 +121,8 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
           design: designRebars, scan: scanRebars,
           toleranceMm: tolerance, up: [0, 1, 0], manualInit,
         });
+        // 표시용 간략명 부여 (수직-내측-1 …) — 저장 결과에도 포함되도록 출력을 교체
+        out.rebars = assignLabels(out.rebars, out.designClassified, out.scanTransformed);
         setOutput(out);
         setSavedRecords(null);
         if (!out.registration.failed) {
@@ -176,6 +183,7 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
           showVerdicts={showVerdicts}
           showMesh={showMesh}
           meshUrl={meshUrl}
+          registrationMatrix={output?.registration.failed ? null : output?.registration.matrix ?? savedMatrix}
           focusKey={focusKey}
         />
         <Group gap={6} style={{ position: "absolute", top: 8, left: 8 }}>
@@ -189,7 +197,7 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
               {VERDICT_LABEL[v]}
             </Chip>
           ))}
-          {meshUrl && (
+          {meshUrl && (output?.registration.failed === false || savedMatrix) && (
             <Chip size="xs" checked={showMesh} onChange={setShowMesh}>
               스캔 메시
             </Chip>
@@ -289,7 +297,8 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
                         <Table.Tr key={key} style={{ cursor: "pointer" }}
                           bg={focusKey === key ? "var(--mantine-color-yellow-0)" : undefined}
                           onClick={() => setFocusKey(key)}>
-                          <Table.Td ff="monospace">{key}</Table.Td>
+                          {/* 표시는 간략명, 원본 요소명은 툴팁으로 */}
+                          <Table.Td title={key}>{r.label ?? key}</Table.Td>
                           <Table.Td>
                             {r.direction === "vertical" ? "수직" : "수평"}·
                             {r.layer === "outer" ? "외측" : "내측"}

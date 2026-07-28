@@ -22,6 +22,8 @@ export interface ViewerProps {
   showVerdicts: Verdict[];
   showMesh: boolean;
   meshUrl: string | null;
+  /** 정합 행렬(column-major 16) — 스캔 메시는 스캔 좌표라 이 행렬로 설계 좌표에 겹친다 */
+  registrationMatrix: number[] | null;
   focusKey: string | null;
 }
 
@@ -65,7 +67,7 @@ function rebarGroup(r: ClassifiedRebar, color: number, opacity: number): THREE.G
 }
 
 export default function AnalysisViewer({
-  designObject, records, design, scan, showVerdicts, showMesh, meshUrl, focusKey,
+  designObject, records, design, scan, showVerdicts, showMesh, meshUrl, registrationMatrix, focusKey,
 }: ViewerProps) {
   const mountRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<{
@@ -185,7 +187,7 @@ export default function AnalysisViewer({
     const s = sceneRef.current;
     if (!s) return;
     disposeChildren(s.meshLayer);
-    if (!showMesh || !meshUrl) return;
+    if (!showMesh || !meshUrl || !registrationMatrix) return;
     let cancelled = false;
     new GLTFLoader().load(meshUrl, (gltf) => {
       if (cancelled || !sceneRef.current) return;
@@ -197,12 +199,14 @@ export default function AnalysisViewer({
           });
         }
       });
+      // 메시는 스캔 좌표계 그대로 저장돼 있다 — 정합 행렬을 적용해 설계 위에 겹친다
+      gltf.scene.applyMatrix4(new THREE.Matrix4().fromArray(registrationMatrix));
       sceneRef.current.meshLayer.add(gltf.scene);
     });
     return () => {
       cancelled = true;
     };
-  }, [showMesh, meshUrl]);
+  }, [showMesh, meshUrl, registrationMatrix]);
 
   // ---- 포커스 ----
   useEffect(() => {
