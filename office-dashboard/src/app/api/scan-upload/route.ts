@@ -27,7 +27,11 @@ export async function POST(req: Request) {
   const rebarsFile = form.get("rebars");
   const meshFile = form.get("mesh");
   if (typeof siteId !== "string" || !/^\d+$/.test(siteId)) return err(400, "site_id가 없거나 숫자가 아닙니다");
-  if (typeof capturedAt !== "string" || Number.isNaN(Date.parse(capturedAt))) {
+  if (
+    typeof capturedAt !== "string" ||
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(capturedAt) ||
+    Number.isNaN(Date.parse(capturedAt))
+  ) {
     return err(400, "captured_at이 없거나 ISO8601이 아닙니다");
   }
   if (!(rebarsFile instanceof File)) return err(400, "rebars 파일이 없습니다");
@@ -38,13 +42,7 @@ export async function POST(req: Request) {
   const scanId = crypto.randomUUID();
   const base = `scans/${siteId}/${scanId}`;
   const opts = { access: "public" as const, addRandomSuffix: false };
-  await put(`${base}/rebars.json`, JSON.stringify(parsed.data), {
-    ...opts, contentType: "application/json",
-  });
   const hasMesh = meshFile instanceof File && meshFile.size > 0;
-  if (hasMesh) {
-    await put(`${base}/mesh.glb`, meshFile, { ...opts, contentType: "model/gltf-binary" });
-  }
   const meta = {
     scan_id: scanId,
     site_id: Number(siteId),
@@ -53,8 +51,18 @@ export async function POST(req: Request) {
     rebar_count: parsed.data.rebars.length,
     has_mesh: hasMesh,
   };
-  await put(`${base}/meta.json`, JSON.stringify(meta), {
-    ...opts, contentType: "application/json",
-  });
+  try {
+    await put(`${base}/rebars.json`, JSON.stringify(parsed.data), {
+      ...opts, contentType: "application/json",
+    });
+    if (hasMesh) {
+      await put(`${base}/mesh.glb`, meshFile, { ...opts, contentType: "model/gltf-binary" });
+    }
+    await put(`${base}/meta.json`, JSON.stringify(meta), {
+      ...opts, contentType: "application/json",
+    });
+  } catch (e) {
+    return err(502, "스토리지 업로드 실패: " + (e instanceof Error ? e.message : String(e)));
+  }
   return NextResponse.json({ status: "success", scan_id: scanId, rebar_count: meta.rebar_count });
 }
