@@ -93,7 +93,7 @@ export function mat4FromRotTrans(r: number[], t: Vec3): Mat4 {
 export function jacobiEigen(a: number[][]): { values: number[]; vectors: number[][] } {
   const n = a.length;
   const m = a.map((row) => row.slice());
-  let v = Array.from({ length: n }, (_, i) =>
+  const v: number[][] = Array.from({ length: n }, (_, i) =>
     Array.from({ length: n }, (_, j) => (i === j ? 1 : 0)),
   );
   for (let sweep = 0; sweep < 50; sweep++) {
