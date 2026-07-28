@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyMat4 } from "./geom";
+import { applyMat4, pointToPolyline, samplePolyline, mat4Identity } from "./geom";
 import { coarseCost, coarseRegister, isDegenerate, icpRefine, registerScan } from "./registration";
 import { jitterRebars, makeWallGrid, offsetRebar, rigidMat4, transformRebars } from "./testFixtures";
 import type { Rebar } from "./types";
@@ -73,5 +73,31 @@ describe("icpRefine + registerScan", () => {
     const r = registerScan(scan, design, init);
     expect(r.method).toBe("manual");
     expect(r.rmsMm).toBeLessThan(1);
+  });
+  it("returned rmsMm matches the final matrix (non-convergent path)", () => {
+    // Regression: icpRefine must return rmsMm for the FINAL matrix, not intermediate state
+    // Use bad init (identity) with large transformation to force non-early-convergence path
+    const design = makeWallGrid();
+    const scan = transformRebars(design, rigidMat4(170, [5, 2, -3]));
+    const result = icpRefine(scan, design, mat4Identity());
+
+    // Independently recompute RMS of the returned matrix
+    const samples: any[] = [];
+    for (const r of scan) samples.push(...samplePolyline(r.centerline, 8));
+    let sum2 = 0;
+    for (const p of samples) {
+      const tp = applyMat4(result.matrix, p);
+      let minDist = Infinity;
+      for (const d of design) {
+        const dist = pointToPolyline(tp, d.centerline);
+        if (dist < minDist) minDist = dist;
+      }
+      sum2 += minDist * minDist;
+    }
+    const recomputedRms = Math.sqrt(sum2 / samples.length);
+    const recomputedMm = recomputedRms * 1000;
+
+    // rmsMm returned by icpRefine must match recomputed value
+    expect(Math.abs(result.rmsMm - recomputedMm)).toBeLessThan(0.01);
   });
 });

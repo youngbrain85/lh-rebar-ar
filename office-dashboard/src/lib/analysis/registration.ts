@@ -147,6 +147,18 @@ function hornRigid(from: Vec3[], to: Vec3[]): { r: number[]; t: Vec3 } {
   return { r, t: sub(ct, rc) };
 }
 
+/** Compute RMS of samples transformed by matrix to closest design points (meters) */
+function computeIcpRms(samples: Vec3[], matrix: Mat4, design: Rebar[]): number {
+  let sum2 = 0;
+  for (const p of samples) {
+    const tp = applyMat4(matrix, p);
+    const q = closestPointOnDesign(tp, design);
+    const d = sub(tp, q);
+    sum2 += dot(d, d);
+  }
+  return Math.sqrt(sum2 / samples.length);
+}
+
 export function icpRefine(
   scan: Rebar[], design: Rebar[], init: Mat4,
 ): { matrix: Mat4; rmsMm: number; iterations: number } {
@@ -177,7 +189,9 @@ export function icpRefine(
     const { r, t } = hornRigid(from, to);
     m = mat4Multiply(mat4FromRotTrans(r, t), m);
   }
-  return { matrix: m, rmsMm: prevRms * 1000, iterations };
+  // Ensure returned rmsMm is for the final matrix
+  const finalRms = computeIcpRms(samples, m, design);
+  return { matrix: m, rmsMm: finalRms * 1000, iterations };
 }
 
 export function registerScan(
