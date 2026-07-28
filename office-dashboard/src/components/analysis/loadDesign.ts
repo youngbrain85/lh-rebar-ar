@@ -5,21 +5,8 @@
 // three 의존은 components/ 아래에만 둔다 (lib/analysis는 순수 TS).
 import * as THREE from "three";
 import { USDLoader } from "three/addons/loaders/USDLoader.js";
-import {
-  extractCenterline, rebarsFromGroups, splitByConnectivity,
-} from "../../lib/analysis/designExtract";
-import type { Rebar, Vec3 } from "../../lib/analysis/types";
-
-function worldVertices(mesh: THREE.Mesh): Vec3[] {
-  const pos = mesh.geometry.getAttribute("position");
-  const out: Vec3[] = [];
-  const v = new THREE.Vector3();
-  for (let i = 0; i < pos.count; i++) {
-    v.fromBufferAttribute(pos as THREE.BufferAttribute, i).applyMatrix4(mesh.matrixWorld);
-    out.push([v.x, v.y, v.z]);
-  }
-  return out;
-}
+import { rebarsFromMeshes, type MeshData } from "../../lib/analysis/designExtract";
+import type { Rebar } from "../../lib/analysis/types";
 
 export async function loadDesign(arId: string): Promise<{ object: THREE.Object3D; rebars: Rebar[] }> {
   const loader = new USDLoader();
@@ -28,52 +15,33 @@ export async function loadDesign(arId: string): Promise<{ object: THREE.Object3D
   );
   object.updateMatrixWorld(true);
 
-  // 1차: 이름 있는 메시들을 상위 오브젝트 이름으로 그룹핑
-  const groups = new Map<string, Vec3[]>();
+  // 메시별 월드좌표 정점 + 인덱스 수집. 이름은 메시 자신 또는 부모 프림에서.
+  // Revit류 내보내기는 철근 "세트"(한 요소에 여러 가닥)를 쓰므로, 가닥 분리는
+  // rebarsFromMeshes가 연결요소 기준으로 수행한다.
   const meshes: THREE.Mesh[] = [];
   object.traverse((n) => {
     if ((n as THREE.Mesh).isMesh) meshes.push(n as THREE.Mesh);
   });
-  for (const mesh of meshes) {
-    // rebar_N 같은 이름은 메시 자신 또는 부모 프림에 있다
+  const meshData: MeshData[] = meshes.map((mesh, mi) => {
     let name = mesh.name;
     let p: THREE.Object3D | null = mesh.parent;
     while ((!name || name === "") && p) {
       name = p.name;
       p = p.parent;
     }
-    if (!name) name = `mesh_${meshes.indexOf(mesh)}`;
-    const arr = groups.get(name) ?? [];
-    arr.push(...worldVertices(mesh));
-    groups.set(name, arr);
-  }
-
-  let rebars: Rebar[] = rebarsFromGroups(
-    [...groups.entries()].map(([name, vertices]) => ({ name, vertices })),
-  );
-
-  // 폴백: 그룹이 1개뿐이면 연결요소 분리 시도
-  if (rebars.length <= 1 && meshes.length > 0) {
-    const parts: Vec3[][] = [];
-    for (const mesh of meshes) {
-      const pos = mesh.geometry.getAttribute("position");
-      const idx = mesh.geometry.getIndex();
-      if (!idx) continue;
-      const flat: number[] = [];
-      const v = new THREE.Vector3();
-      for (let i = 0; i < pos.count; i++) {
-        v.fromBufferAttribute(pos as THREE.BufferAttribute, i).applyMatrix4(mesh.matrixWorld);
-        flat.push(v.x, v.y, v.z);
-      }
-      parts.push(...splitByConnectivity(flat, Array.from(idx.array)));
+    if (!name) name = `mesh_${mi}`;
+    const pos = mesh.geometry.getAttribute("position");
+    const idx = mesh.geometry.getIndex();
+    const positions: number[] = [];
+    const v = new THREE.Vector3();
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos as THREE.BufferAttribute, i).applyMatrix4(mesh.matrixWorld);
+      positions.push(v.x, v.y, v.z);
     }
-    rebars = parts
-      .filter((p) => p.length >= 3)
-      .map((vertices, i) => {
-        const { centerline, radius } = extractCenterline(vertices);
-        return { id: `part_${i}`, centerline, radius };
-      });
-  }
+    return { name, positions, index: idx ? Array.from(idx.array) : null };
+  });
+
+  const rebars = rebarsFromMeshes(meshData);
 
   if (rebars.length <= 1) {
     throw new Error("설계모델에서 철근을 분리할 수 없습니다 (서브오브젝트/연결요소 없음)");
