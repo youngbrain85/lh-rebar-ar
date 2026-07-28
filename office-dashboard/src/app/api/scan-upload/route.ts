@@ -8,8 +8,22 @@ import { parseRebarsJson } from "../../../lib/analysis/rebarsSchema";
 // 이 라우트 내부만 프록시로 교체한다.
 export const dynamic = "force-dynamic";
 
+// 라이다 앱은 브라우저 기반 웹 도구(크로스오리진)에서 직접 POST한다.
+// 인증이 Bearer 토큰(쿠키 아님)이므로 오리진 와일드카드가 안전하다.
+// 에러 응답에도 반드시 붙여야 브라우저가 400/401 본문을 읽을 수 있다.
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Authorization, Content-Type",
+  "Access-Control-Max-Age": "86400",
+};
+
+export async function OPTIONS() {
+  return new Response(null, { status: 204, headers: CORS_HEADERS });
+}
+
 function err(status: number, message: string, extra: Record<string, unknown> = {}) {
-  return NextResponse.json({ status: "error", message, ...extra }, { status });
+  return NextResponse.json({ status: "error", message, ...extra }, { status, headers: CORS_HEADERS });
 }
 
 export async function POST(req: Request) {
@@ -69,5 +83,8 @@ export async function POST(req: Request) {
   } catch (e) {
     return err(502, "스토리지 업로드 실패: " + (e instanceof Error ? e.message : String(e)));
   }
-  return NextResponse.json({ status: "success", scan_id: scanId, rebar_count: meta.rebar_count });
+  return NextResponse.json(
+    { status: "success", scan_id: scanId, rebar_count: meta.rebar_count },
+    { headers: CORS_HEADERS },
+  );
 }
