@@ -28,9 +28,16 @@ export async function PUT(req: Request) {
   } catch {
     return NextResponse.json({ status: "error", message: "JSON 본문이 아닙니다" }, { status: 400 });
   }
-  await put(`scans/${k.siteId}/${k.scanId}/analysis-result.json`, body, {
-    access: "public", addRandomSuffix: false, contentType: "application/json",
-  });
+  try {
+    await put(`scans/${k.siteId}/${k.scanId}/analysis-result.json`, body, {
+      access: "public", addRandomSuffix: false, contentType: "application/json",
+    });
+  } catch (e) {
+    return NextResponse.json(
+      { status: "error", message: "스토리지 저장 실패: " + (e instanceof Error ? e.message : String(e)) },
+      { status: 502 },
+    );
+  }
   return NextResponse.json({ status: "success" });
 }
 
