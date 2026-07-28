@@ -49,6 +49,7 @@ commit them):
 ```
 secrets/livekit.env                        # LIVEKIT_URL / API_KEY / API_SECRET
 office-dashboard/.env.local                # same three (NEXT_PUBLIC_LIVEKIT_URL + key + secret)
+office-dashboard/.env.local                # + BLOB_READ_WRITE_TOKEN, SCAN_UPLOAD_TOKEN (시공 분석)
 LHRebarAR/Services/LiveShareConfig.swift   # copy from LiveShareConfig.swift.example, fill in
 ```
 
@@ -97,6 +98,10 @@ Working and verified on device:
 - Mantine 9 UI, BriconLab navy `#002961` + white
 - **현장 관리**: site table from BriconLab, 🔴 LIVE badge (polls `/api/live` every 6s), 3D model drawer, three.js USDZ viewer
 - **라이브 협업**: field screen at native aspect (`object-contain`), participants, 🎤 talk-back, click-to-annotate (포인터 / 📌 메모 modes), clear-memos
+- **시공 분석**: as-built 스캔(철근 중심선 JSON) 업로드 → 브라우저 메인스레드에서 설계모델과
+  정합(PCA+ICP)·철근별 매칭 → 미시공/허용초과/도면외 판정 + 3D 오버레이.
+  스토리지는 Vercel Blob (BriconLab 이관 스펙: `api/SCAN_STORAGE_REQUEST.md`).
+  데모 업로드: `node office-dashboard/scripts/make-demo-scan.mjs --upload <url> --site 5`
 
 ---
 
@@ -131,6 +136,10 @@ AnchorEntity(world:)          ← world-fixed (NOT ARAnchor-backed — see gotch
 | `/api/models?site_id=` | Proxy → `analysis/ar-list` |
 | `/api/model?ar_id=` | Streams USDZ → `analysis/usdz` (proxy exists to dodge HTTPS→HTTP mixed content) |
 | `/api/live` | Lists active LiveKit rooms (for LIVE badges) |
+| `/api/scan-upload` | POST, Bearer `SCAN_UPLOAD_TOKEN` — 라이다 앱의 as-built 업로드 → Vercel Blob |
+| `/api/scans?site_id=` | 사이트별 스캔 목록 (Blob meta.json 취합) |
+| `/api/scan?site_id=&scan_id=` | 스캔 파일 URL 해석 (rebars/mesh) |
+| `/api/analysis-result?site_id=&scan_id=` | PUT/GET 분석결과 JSON |
 
 ### Annotation data protocol (LiveKit data channel, topic `annotation`)
 ```jsonc
@@ -214,6 +223,8 @@ The app normally fetches tokens from the dashboard at runtime; the embedded
 
 **Blocked on BriconLab:**
 - `POST /analysis/measurement-upload` — spec written in `api/MEASUREMENT_UPLOAD_REQUEST.md` (multipart: image + site_id + ar_id + inspector + remark + captured_at + `measurements[]` with name/points/distance/h/v/source). Once it exists, wire the capture flow to upload instead of only saving to Photos.
+- as-built 스캔 저장 API — 스펙 `api/SCAN_STORAGE_REQUEST.md`. 구현되면
+  대시보드 API 라우트 내부만 프록시로 교체 (클라이언트 무변경).
 
 **Ready to build when wanted:**
 - Automatic periodic re-lock (currently manual scope button)
