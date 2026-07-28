@@ -25,6 +25,20 @@ export interface ViewerProps {
   focusKey: string | null;
 }
 
+/** Group 하위의 지오메트리/머티리얼을 dispose하고 비운다 (Group.clear는 detach만 한다) */
+function disposeChildren(group: THREE.Group) {
+  group.traverse((n) => {
+    const mesh = n as THREE.Mesh;
+    if (mesh.isMesh) {
+      mesh.geometry?.dispose();
+      const m = mesh.material;
+      if (Array.isArray(m)) m.forEach((x) => x.dispose());
+      else m?.dispose();
+    }
+  });
+  group.clear();
+}
+
 function cylinderBetween(a: [number, number, number], b: [number, number, number], radius: number, mat: THREE.Material): THREE.Mesh {
   const va = new THREE.Vector3(...a);
   const vb = new THREE.Vector3(...b);
@@ -143,7 +157,7 @@ export default function AnalysisViewer({
   useEffect(() => {
     const s = sceneRef.current;
     if (!s) return;
-    s.overlay.clear();
+    disposeChildren(s.overlay);
     s.keyed.clear();
     const designById = new Map(design.map((r) => [r.id, r]));
     const scanById = new Map(scan.map((r) => [r.id, r]));
@@ -170,7 +184,7 @@ export default function AnalysisViewer({
   useEffect(() => {
     const s = sceneRef.current;
     if (!s) return;
-    s.meshLayer.clear();
+    disposeChildren(s.meshLayer);
     if (!showMesh || !meshUrl) return;
     let cancelled = false;
     new GLTFLoader().load(meshUrl, (gltf) => {
