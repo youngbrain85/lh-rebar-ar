@@ -44,6 +44,8 @@ export interface RebarRecord {
   layer: Layer;
   deviationMm: { mean: number; max: number } | null;
   verdict: Verdict;
+  /** 표시용 간략명 (예: "수직-내측-1") — assignLabels가 부여, 저장 결과에도 포함 */
+  label?: string;
 }
 
 export interface GroupSummary {
