@@ -101,7 +101,7 @@ Working and verified on device:
 - **시공 분석**: as-built 스캔(철근 중심선 JSON) 업로드 → 브라우저 메인스레드에서 설계모델과
   정합(PCA+ICP)·철근별 매칭 → 미시공/허용초과/도면외 판정 + 3D 오버레이.
   스토리지는 Vercel Blob (BriconLab 이관 스펙: `api/SCAN_STORAGE_REQUEST.md`).
-  데모 업로드: `office-dashboard/scripts/make-demo-scan.mjs --upload <url> --site 5`
+  데모 업로드: `node office-dashboard/scripts/make-demo-scan.mjs --upload <url> --site 5`
 
 ---
 
