@@ -1,8 +1,9 @@
 // office-dashboard/src/components/analysis/AnalysisTab.tsx
 "use client";
 
-import { Alert, Button, Group, Select, Stack, Text, Title } from "@mantine/core";
+import { Alert, Box, Button, Group, Select, Stack, Text, Title } from "@mantine/core";
 import { useEffect, useState } from "react";
+import AnalysisView from "./AnalysisView";
 import ScanList, { type ScanMeta } from "./ScanList";
 
 type Site = { site_id: number; site_name: string };
@@ -37,8 +38,9 @@ export default function AnalysisTab() {
             ← 목록으로
           </Button>
         </Group>
-        {/* Task 17에서 <AnalysisView …/>로 교체 */}
-        <Alert color="gray">분석 화면은 Task 17에서 구현됩니다</Alert>
+        <Box style={{ flex: 1, minHeight: 0, display: "flex" }}>
+          <AnalysisView scan={open.scan} arId={open.arId} />
+        </Box>
       </Stack>
     );
   }
