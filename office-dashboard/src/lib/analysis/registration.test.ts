@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { applyMat4 } from "./geom";
 import { coarseCost, coarseRegister, isDegenerate } from "./registration";
-import { jitterRebars, makeWallGrid, rigidMat4, transformRebars } from "./testFixtures";
+import { jitterRebars, makeWallGrid, offsetRebar, rigidMat4, transformRebars } from "./testFixtures";
 import type { Rebar } from "./types";
 
 describe("coarseRegister", () => {
@@ -19,6 +19,12 @@ describe("coarseRegister", () => {
     const scan = jitterRebars(transformRebars(design, rigidMat4(45, [0.5, -0.2, 0.3])), 0.002, 7);
     const m = coarseRegister(scan, design);
     expect(coarseCost(scan, design, m)).toBeLessThan(0.03);
+  });
+  it("asymmetric grid still registers (flip discrimination exercised)", () => {
+    const design = offsetRebar(makeWallGrid(), "d-v-outer-0", [0, 0.4, 0]);
+    const scan = transformRebars(design, rigidMat4(30, [1.2, 0.4, -0.8]));
+    const m = coarseRegister(scan, design);
+    expect(coarseCost(scan, design, m)).toBeLessThan(0.02);
   });
 });
 
