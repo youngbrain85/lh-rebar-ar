@@ -2,7 +2,7 @@
 "use client";
 
 // 분석 실행 + 결과 시각화 화면 — spec §6·§7.
-// 흐름: 설계 USDZ + rebars.json 로드 → worker 분석 → 뷰어/카드/테이블 표시.
+// 흐름: 설계 USDZ + rebars.json 로드 → 메인스레드 분석 → 뷰어/카드/테이블 표시.
 // 기존 결과가 저장돼 있으면 자동 로드하고, 재분석 버튼으로 다시 돌릴 수 있다.
 import {
   Alert, Badge, Box, Button, Card, Center, Chip, Group, Loader, NumberInput,
@@ -84,7 +84,12 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
         setMeshUrl(scanRes.mesh_url ?? null);
         if (prevRes.ok) {
           const prev: AnalysisResult = await prevRes.json();
-          if (!cancelled && prev.version === 1) {
+          if (
+            !cancelled &&
+            prev.version === 1 &&
+            Array.isArray(prev.rebars) &&
+            typeof prev.toleranceMm === "number"
+          ) {
             setSavedRecords(prev.rebars);
             setTolerance(prev.toleranceMm);
           }

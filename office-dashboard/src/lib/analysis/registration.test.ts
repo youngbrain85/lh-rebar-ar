@@ -74,6 +74,23 @@ describe("icpRefine + registerScan", () => {
     expect(r.method).toBe("manual");
     expect(r.rmsMm).toBeLessThan(1);
   });
+  it("regression: 4-candidate ICP escapes the wrong basin that a single coarseRegister init fell into", () => {
+    // coarseRegister(coarseCost 기준 최선 1후보)만으로 ICP를 돌리면 이 픽스처는
+    // 약 31mm RMS의 잘못된 basin으로 수렴했다. 4후보 전부를 ICP로 정련해
+    // 최종 RMS가 가장 낮은 결과를 채택해야 참 basin을 찾는다.
+    const design = offsetRebar(makeWallGrid(), "d-v-outer-0", [0, 0.4, 0]);
+    let scan = offsetRebar(makeWallGrid(), "d-v-outer-0", [0, 0.4, 0]).filter(
+      (r) => r.id !== "d-v-outer-3",
+    );
+    scan = offsetRebar(scan, "d-h-inner-1", [0, 0, 0.015]);
+    scan = jitterRebars(scan, 0.002, 99);
+    scan = transformRebars(scan, rigidMat4(75, [3.1, -0.6, 1.4]));
+    scan = scan.map((r, i) => ({ ...r, id: `s${i}` }));
+
+    const result = registerScan(scan, design);
+    expect(result.failed).toBe(false);
+    expect(result.rmsMm).toBeLessThan(6);
+  });
   it("returned rmsMm matches the final matrix (non-convergent path)", () => {
     // Regression: icpRefine must return rmsMm for the FINAL matrix, not intermediate state
     // Use bad init (identity) with large transformation to force non-early-convergence path

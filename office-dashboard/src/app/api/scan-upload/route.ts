@@ -1,4 +1,5 @@
 import { put } from "@vercel/blob";
+import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { parseRebarsJson } from "../../../lib/analysis/rebarsSchema";
 
@@ -17,7 +18,11 @@ export async function POST(req: Request) {
   }
   const token = process.env.SCAN_UPLOAD_TOKEN;
   if (!token) return err(500, "SCAN_UPLOAD_TOKEN이 설정되지 않았습니다");
-  if (req.headers.get("authorization") !== `Bearer ${token}`) {
+  const provided = req.headers.get("authorization") ?? "";
+  const expected = `Bearer ${token}`;
+  const providedBuf = Buffer.from(provided);
+  const expectedBuf = Buffer.from(expected);
+  if (providedBuf.length !== expectedBuf.length || !timingSafeEqual(providedBuf, expectedBuf)) {
     return err(401, "인증 실패");
   }
 

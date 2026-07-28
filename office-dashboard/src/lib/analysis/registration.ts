@@ -43,15 +43,15 @@ function orthoBasis(axes: Vec3[]): Vec3[] {
   return [a, b, c];
 }
 
-export function coarseRegister(scan: Rebar[], design: Rebar[]): Mat4 {
+/** PCA 주축 부호 플립 4후보 (det=+1 보장) — coarseCost로 채점하기 전의 원재료 */
+export function coarseCandidates(scan: Rebar[], design: Rebar[]): Mat4[] {
   const ps = allSamples(scan);
   const pd = allSamples(design);
   const s = pca(ps), d = pca(pd);
   const sa = orthoBasis(s.axes), da = orthoBasis(d.axes);
 
   // 부호 플립 (s1,s2)∈{±1}², s3 = s1·s2 로 det=+1 보장 → 4후보
-  let best: Mat4 | null = null;
-  let bestCost = Infinity;
+  const candidates: Mat4[] = [];
   for (const f1 of [1, -1]) {
     for (const f2 of [1, -1]) {
       const f3 = f1 * f2;
@@ -68,12 +68,20 @@ export function coarseRegister(scan: Rebar[], design: Rebar[]): Mat4 {
         r[6] * s.mean[0] + r[7] * s.mean[1] + r[8] * s.mean[2],
       ];
       const t = sub(d.mean, rotMean);
-      const m = mat4FromRotTrans(r, t);
-      const cost = coarseCost(scan, design, m);
-      if (cost < bestCost) {
-        bestCost = cost;
-        best = m;
-      }
+      candidates.push(mat4FromRotTrans(r, t));
+    }
+  }
+  return candidates;
+}
+
+export function coarseRegister(scan: Rebar[], design: Rebar[]): Mat4 {
+  let best: Mat4 | null = null;
+  let bestCost = Infinity;
+  for (const m of coarseCandidates(scan, design)) {
+    const cost = coarseCost(scan, design, m);
+    if (cost < bestCost) {
+      bestCost = cost;
+      best = m;
     }
   }
   return best!;
@@ -200,9 +208,19 @@ export function registerScan(
   if (isDegenerate(scan) || isDegenerate(design)) {
     return { matrix: manualInit ?? coarseInitSafe(scan, design), rmsMm: Infinity, method: manualInit ? "manual" : "auto", failed: true };
   }
-  const init = manualInit ?? coarseRegister(scan, design);
-  const { matrix, rmsMm } = icpRefine(scan, design, init);
-  return { matrix, rmsMm, method: manualInit ? "manual" : "auto", failed: rmsMm > 30 };
+  if (manualInit) {
+    const { matrix, rmsMm } = icpRefine(scan, design, manualInit);
+    return { matrix, rmsMm, method: "manual", failed: rmsMm > 30 };
+  }
+  // 4가지 플립 후보 전부를 ICP로 정련해 최종 RMS가 가장 낮은 결과를 채택 —
+  // coarseCost(선형 근사) 기준 최선 후보가 잘못된 basin으로 수렴하는 경우를 방지.
+  let best: { matrix: Mat4; rmsMm: number } | null = null;
+  for (const init of coarseCandidates(scan, design)) {
+    const refined = icpRefine(scan, design, init);
+    if (!best || refined.rmsMm < best.rmsMm) best = refined;
+  }
+  const { matrix, rmsMm } = best!;
+  return { matrix, rmsMm, method: "auto", failed: rmsMm > 30 };
 }
 
 /** 퇴화 시에도 안전한 초기값: 평균점 이동만 */
