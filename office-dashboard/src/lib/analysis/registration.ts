@@ -155,16 +155,44 @@ function hornRigid(from: Vec3[], to: Vec3[]): { r: number[]; t: Vec3 } {
   return { r, t: sub(ct, rc) };
 }
 
-/** Compute RMS of samples transformed by matrix to closest design points (meters) */
-function computeIcpRms(samples: Vec3[], matrix: Mat4, design: Rebar[]): number {
-  let sum2 = 0;
+/** 각 샘플의 최근접 설계점 거리 제곱 (오름차순 정렬) */
+function sortedSqDistances(samples: Vec3[], matrix: Mat4, design: Rebar[]): number[] {
+  const sq: number[] = [];
   for (const p of samples) {
     const tp = applyMat4(matrix, p);
-    const q = closestPointOnDesign(tp, design);
-    const d = sub(tp, q);
-    sum2 += dot(d, d);
+    const d = sub(tp, closestPointOnDesign(tp, design));
+    sq.push(dot(d, d));
   }
-  return Math.sqrt(sum2 / samples.length);
+  return sq.sort((a, b) => a - b);
+}
+
+/** 전체 RMS (meters) — basin 판별(후보 선택)용. 이상치까지 포함해 전역 오정합을 벌준다. */
+function computeIcpRms(samples: Vec3[], matrix: Mat4, design: Rebar[]): number {
+  if (samples.length === 0) return 0;
+  const sq = sortedSqDistances(samples, matrix, design);
+  const sum2 = sq.reduce((s, v) => s + v, 0);
+  return Math.sqrt(sum2 / sq.length);
+}
+
+/**
+ * 트림 RMS (meters): 가장 먼 20% 점을 버린 RMS — 실패 판정·표시용.
+ * 정당한 "도면 외" 철근(설계에 없는 여분)이나 소수 이상치가 실제 구조물의 정합 품질을
+ * 오염시켜 거짓 실패를 내는 것을 막는다. 전역 오정합은 대부분 점이 멀어 트림 후에도 큰 값.
+ */
+function computeIcpRmsTrimmed(samples: Vec3[], matrix: Mat4, design: Rebar[]): number {
+  if (samples.length === 0) return 0;
+  const sq = sortedSqDistances(samples, matrix, design);
+  const keep = Math.max(1, Math.ceil(sq.length * 0.8));
+  let sum2 = 0;
+  for (let i = 0; i < keep; i++) sum2 += sq[i];
+  return Math.sqrt(sum2 / keep);
+}
+
+/** 스캔 철근을 8점씩 샘플링 */
+function scanSamples(scan: Rebar[]): Vec3[] {
+  const s: Vec3[] = [];
+  for (const r of scan) s.push(...samplePolyline(r.centerline, 8));
+  return s;
 }
 
 export function icpRefine(
@@ -197,7 +225,27 @@ export function icpRefine(
     const { r, t } = hornRigid(from, to);
     m = mat4Multiply(mat4FromRotTrans(r, t), m);
   }
-  // Ensure returned rmsMm is for the final matrix
+
+  // 2단계 정련: 위 전체-ICP가 basin을 확정한 뒤(주기 구조에서 한 칸 미끄러지는 것을 방지),
+  // 정합된 포즈에서 시작해 최근접 80% 대응점만으로 몇 번 더 정련한다 — 도면 외/이상치 철근이
+  // Horn 솔브를 끌어당겨 실제 구조물 편차를 부풀리는 것을 제거한다.
+  for (let iter = 0; iter < 6; iter++) {
+    const corr: { from: Vec3; to: Vec3; d2: number }[] = [];
+    for (const p of samples) {
+      const tp = applyMat4(m, p);
+      const q = closestPointOnDesign(tp, design);
+      corr.push({ from: tp, to: q, d2: dot(sub(tp, q), sub(tp, q)) });
+    }
+    corr.sort((a, b) => a.d2 - b.d2);
+    const inliers = corr.slice(0, Math.max(3, Math.ceil(corr.length * 0.8)));
+    const rms = Math.sqrt(inliers.reduce((s, c) => s + c.d2, 0) / inliers.length);
+    if (Math.abs(prevRms - rms) < 0.0001) { prevRms = rms; break; }
+    prevRms = rms;
+    const { r, t } = hornRigid(inliers.map((c) => c.from), inliers.map((c) => c.to));
+    m = mat4Multiply(mat4FromRotTrans(r, t), m);
+  }
+
+  // 반환 rmsMm은 최종 행렬 기준 전체 RMS (basin 판별용) — registerScan이 트림 게이트를 별도 적용
   const finalRms = computeIcpRms(samples, m, design);
   return { matrix: m, rmsMm: finalRms * 1000, iterations };
 }
@@ -208,19 +256,22 @@ export function registerScan(
   if (isDegenerate(scan) || isDegenerate(design)) {
     return { matrix: manualInit ?? coarseInitSafe(scan, design), rmsMm: Infinity, method: manualInit ? "manual" : "auto", failed: true };
   }
+  // 표시·실패판정은 트림 RMS(이상치·도면외 철근에 강건), 후보 선택은 전체 RMS(basin 판별).
+  const gate = (matrix: Mat4, method: "auto" | "manual") => {
+    const trimMm = computeIcpRmsTrimmed(scanSamples(scan), matrix, design) * 1000;
+    return { matrix, rmsMm: trimMm, method, failed: trimMm > 30 };
+  };
   if (manualInit) {
-    const { matrix, rmsMm } = icpRefine(scan, design, manualInit);
-    return { matrix, rmsMm, method: "manual", failed: rmsMm > 30 };
+    return gate(icpRefine(scan, design, manualInit).matrix, "manual");
   }
-  // 4가지 플립 후보 전부를 ICP로 정련해 최종 RMS가 가장 낮은 결과를 채택 —
+  // 4가지 플립 후보 전부를 ICP로 정련해 전체 RMS가 가장 낮은 basin을 채택 —
   // coarseCost(선형 근사) 기준 최선 후보가 잘못된 basin으로 수렴하는 경우를 방지.
   let best: { matrix: Mat4; rmsMm: number } | null = null;
   for (const init of coarseCandidates(scan, design)) {
     const refined = icpRefine(scan, design, init);
     if (!best || refined.rmsMm < best.rmsMm) best = refined;
   }
-  const { matrix, rmsMm } = best!;
-  return { matrix, rmsMm, method: "auto", failed: rmsMm > 30 };
+  return gate(best!.matrix, "auto");
 }
 
 /** 퇴화 시에도 안전한 초기값: 평균점 이동만 */
