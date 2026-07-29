@@ -117,4 +117,32 @@ describe("icpRefine + registerScan", () => {
     // rmsMm returned by icpRefine must match recomputed value
     expect(Math.abs(result.rmsMm - recomputedMm)).toBeLessThan(0.01);
   });
+
+  it("legitimate extra bars do NOT trigger false registration failure", () => {
+    // 도면 외 철근(설계에 없는 여분)이 몇 개 있어도 실제 구조물이 정합되면 통과해야 한다.
+    // 회귀: 이전엔 전체 RMS를 써서 멀리 있는 여분 철근이 RMS를 부풀려 거짓 실패했음.
+    const design = offsetRebar(makeWallGrid(), "d-v-outer-0", [0, 0.4, 0]);
+    let scan: Rebar[] = offsetRebar(makeWallGrid(), "d-v-outer-0", [0, 0.4, 0]);
+    // 벽 가장자리 바로 밖에 여분 수직근 추가 (스캔 좌표계에서 도면 외로 잡혀야 함)
+    scan.push({ id: "extra-a", radius: 0.008, centerline: [[2.0, 0, 0], [2.0, 2, 0]] });
+    scan = jitterRebars(transformRebars(scan, rigidMat4(35, [1.5, -0.5, 0.7])), 0.002, 17)
+      .map((r, i) => ({ ...r, id: `s${i}` }));
+    const result = registerScan(scan, design);
+    // 전체 RMS라면 멀리 있는 여분 철근이 값을 부풀려 거짓 실패했을 것 — 트림 RMS로 통과해야 함
+    expect(result.failed).toBe(false);
+    expect(result.rmsMm).toBeLessThan(20);
+  });
+
+  it("global misalignment (wrong structure) still fails loudly", () => {
+    // 안전장치: 완전히 다른 구조물이면 트림 후에도 RMS가 커서 실패로 잡혀야 한다.
+    const design = offsetRebar(makeWallGrid(), "d-v-outer-0", [0, 0.4, 0]);
+    const wrong: Rebar[] = [];
+    for (let i = 0; i < 12; i++) {
+      wrong.push({ id: `w${i}`, radius: 0.008, centerline: [[i * 0.5, 0, 10], [i * 0.5, 0, 13]] });
+    }
+    const result = registerScan(wrong, design);
+    expect(result.failed).toBe(true);
+    expect(result.rmsMm).toBeGreaterThan(30);
+  });
+
 });
