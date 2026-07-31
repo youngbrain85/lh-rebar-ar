@@ -13,19 +13,17 @@ export type ScanMeta = {
   has_mesh: boolean;
 };
 
-type ARModel = { ar_id: string; ar_filename: string; upload_at: string };
-
-/// 사이트의 as-built 스캔 목록. 설계모델(ar-list 첫 항목)을 함께 해석해서
-/// onOpen(scan, arId)으로 분석 화면에 넘긴다.
+/// 사이트의 as-built 스캔 목록. 비교할 설계모델(arId)은 상위(AnalysisTab)에서 고른 값을 받는다.
 export default function ScanList({
   siteId,
+  arId,
   onOpen,
 }: {
   siteId: number;
-  onOpen: (scan: ScanMeta, arId: string) => void;
+  arId: string | null;
+  onOpen: (scan: ScanMeta) => void;
 }) {
   const [scans, setScans] = useState<ScanMeta[] | null>(null);
-  const [arId, setArId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -33,16 +31,10 @@ export default function ScanList({
     setError(null);
     (async () => {
       try {
-        const [scansRes, modelsRes] = await Promise.all([
-          fetch(`/api/scans?site_id=${siteId}`),
-          fetch(`/api/models?site_id=${siteId}`),
-        ]);
-        const scansData = await scansRes.json();
-        if (scansData.status !== "success") throw new Error(scansData.message || "스캔 조회 실패");
-        const modelsData = await modelsRes.json();
-        const models: ARModel[] = modelsData.ar_list || [];
-        setArId(models.length > 0 ? models[0].ar_id : null);
-        setScans(scansData.scans || []);
+        const res = await fetch(`/api/scans?site_id=${siteId}`);
+        const data = await res.json();
+        if (data.status !== "success") throw new Error(data.message || "스캔 조회 실패");
+        setScans(data.scans || []);
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
       }
@@ -60,7 +52,7 @@ export default function ScanList({
     return (
       <Alert color="gray" variant="light">
         이 현장에 업로드된 스캔이 없습니다. 라이다 앱에서 업로드하거나
-        데모 스크립트(scripts/make-demo-scan.mjs --upload)를 사용하세요.
+        데모 스크립트(node office-dashboard/scripts/make-demo-scan.mjs --upload)를 사용하세요.
       </Alert>
     );
   return (
@@ -86,7 +78,7 @@ export default function ScanList({
                 </Text>
               </Group>
             </div>
-            <Button size="xs" disabled={arId == null} onClick={() => arId && onOpen(s, arId)}>
+            <Button size="xs" disabled={arId == null} onClick={() => arId && onOpen(s)}>
               분석
             </Button>
           </Group>
