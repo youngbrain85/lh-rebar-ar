@@ -9,7 +9,7 @@
 |---|---|---|
 | site_id | text | 기존 site-list의 site_id |
 | captured_at | text | ISO8601 촬영 시각 |
-| label | text(선택) | 사람이 읽을 이름 (예: "B동 지하1층 옹벽 東면"). 없으면 대시보드가 촬영시각으로 표시 |
+| label | text(선택) | 사람이 읽을 이름 (예: "B동 지하1층 옹벽 東면"). **UTF-8로 보낼 것** — 목록 응답의 `name`이 "이름 · YYYY-MM-DD HH:mm" 형태로 만들어져 내려온다 |
 | rebars | file | rebars.json (아래 스키마) |
 | mesh | file(선택) | mesh.glb 시각화용 |
 

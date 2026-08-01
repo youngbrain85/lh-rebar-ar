@@ -1,5 +1,6 @@
 import { list } from "@vercel/blob";
 import { NextResponse } from "next/server";
+import { scanDisplayName } from "../../../lib/analysis/scanName";
 
 // 단일 스캔의 파일 URL 해석. Blob public URL을 그대로 반환한다 (CORS 허용됨).
 export const dynamic = "force-dynamic";
@@ -25,7 +26,8 @@ export async function GET(req: Request) {
     if (!rebarsUrl || !metaUrl) {
       return NextResponse.json({ status: "error", message: "스캔을 찾을 수 없습니다" }, { status: 404 });
     }
-    const meta = await (await fetch(metaUrl, { cache: "no-store" })).json();
+    const rawMeta = await (await fetch(metaUrl, { cache: "no-store" })).json();
+    const meta = { ...rawMeta, name: scanDisplayName(rawMeta) };
     return NextResponse.json({
       status: "success",
       rebars_url: rebarsUrl,

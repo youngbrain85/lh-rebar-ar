@@ -4,22 +4,24 @@
 import { Alert, Badge, Button, Card, Center, Group, Loader, Stack, Text } from "@mantine/core";
 import { useEffect, useState } from "react";
 
+import { scanDisplayName } from "../../lib/analysis/scanName";
+
 export type ScanMeta = {
   scan_id: string;
   site_id: number;
-  /** 라이다 앱이 보낸 사람이 읽을 이름 (선택). 없으면 촬영 시각으로 표시한다. */
+  /** 라이다 앱이 보낸 사람이 읽을 이름 (선택) */
   label?: string;
+  /** 서버가 만들어 준 표시 이름 ("이름 · YYYY-MM-DD HH:mm") */
+  name?: string;
   captured_at: string;
   uploaded_at: string;
   rebar_count: number;
   has_mesh: boolean;
 };
 
-/** 스캔 표시명: label → 촬영 시각 순으로 고른다 (scan_id는 보조 표기) */
+/** 표시명: 서버가 준 name을 쓰고, 없으면 같은 규칙으로 직접 만든다 */
 export function scanTitle(s: ScanMeta): string {
-  if (s.label) return s.label;
-  const t = s.captured_at.replace("T", " ").slice(0, 16);
-  return `촬영 ${t}`;
+  return s.name || scanDisplayName(s);
 }
 
 /// 사이트의 as-built 스캔 목록. 비교할 설계모델(arId)은 상위(AnalysisTab)에서 고른 값을 받는다.
