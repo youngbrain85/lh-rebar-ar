@@ -49,7 +49,8 @@ commit them):
 ```
 secrets/livekit.env                        # LIVEKIT_URL / API_KEY / API_SECRET
 office-dashboard/.env.local                # same three (NEXT_PUBLIC_LIVEKIT_URL + key + secret)
-office-dashboard/.env.local                # + BLOB_READ_WRITE_TOKEN, SCAN_UPLOAD_TOKEN (시공 분석)
+office-dashboard/.env.local                # + BLOB_READ_WRITE_TOKEN (시공 분석)
+                                           #   SCAN_UPLOAD_TOKEN은 선택 — 넣으면 업로드에 Bearer 인증이 켜진다
 LHRebarAR/Services/LiveShareConfig.swift   # copy from LiveShareConfig.swift.example, fill in
 ```
 
@@ -136,7 +137,7 @@ AnchorEntity(world:)          ← world-fixed (NOT ARAnchor-backed — see gotch
 | `/api/models?site_id=` | Proxy → `analysis/ar-list` |
 | `/api/model?ar_id=` | Streams USDZ → `analysis/usdz` (proxy exists to dodge HTTPS→HTTP mixed content) |
 | `/api/live` | Lists active LiveKit rooms (for LIVE badges) |
-| `/api/scan-upload` | POST, Bearer `SCAN_UPLOAD_TOKEN` — 라이다 앱의 as-built 업로드 → Vercel Blob |
+| `/api/scan-upload` | POST — 라이다 앱의 as-built 업로드 → Vercel Blob. **인증은 선택**: `SCAN_UPLOAD_TOKEN`이 설정돼 있으면 Bearer 일치를 요구하고, 없으면 누구나 업로드 가능(현재 테스트 운영 모드). 실운영 전환 시 환경변수만 다시 설정하면 잠긴다 |
 | `/api/scans?site_id=` | 사이트별 스캔 목록 (Blob meta.json 취합) |
 | `/api/scan?site_id=&scan_id=` | 스캔 파일 URL 해석 (rebars/mesh) |
 | `/api/analysis-result?site_id=&scan_id=` | PUT/GET 분석결과 JSON |

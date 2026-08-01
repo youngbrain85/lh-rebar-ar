@@ -9,7 +9,7 @@ import { parseRebarsJson } from "../../../lib/analysis/rebarsSchema";
 export const dynamic = "force-dynamic";
 
 // 라이다 앱은 브라우저 기반 웹 도구(크로스오리진)에서 직접 POST한다.
-// 인증이 Bearer 토큰(쿠키 아님)이므로 오리진 와일드카드가 안전하다.
+// 쿠키 인증이 아니므로 오리진 와일드카드가 안전하다.
 // 에러 응답에도 반드시 붙여야 브라우저가 400/401 본문을 읽을 수 있다.
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -30,14 +30,19 @@ export async function POST(req: Request) {
   if (!process.env.BLOB_READ_WRITE_TOKEN) {
     return err(500, "BLOB_READ_WRITE_TOKEN이 설정되지 않았습니다 (Vercel Blob 연결 필요)");
   }
+  // 업로드 인증은 선택 사항이다 (테스트 운영 결정).
+  //   SCAN_UPLOAD_TOKEN 미설정 → 토큰 없이 업로드 허용 (현재 운영 모드)
+  //   SCAN_UPLOAD_TOKEN 설정   → Bearer 토큰 일치 요구
+  // 실운영으로 넘어갈 때 환경변수만 다시 넣으면 즉시 잠긴다 (코드 변경 불필요).
   const token = process.env.SCAN_UPLOAD_TOKEN;
-  if (!token) return err(500, "SCAN_UPLOAD_TOKEN이 설정되지 않았습니다");
-  const provided = req.headers.get("authorization") ?? "";
-  const expected = `Bearer ${token}`;
-  const providedBuf = Buffer.from(provided);
-  const expectedBuf = Buffer.from(expected);
-  if (providedBuf.length !== expectedBuf.length || !timingSafeEqual(providedBuf, expectedBuf)) {
-    return err(401, "인증 실패");
+  if (token) {
+    const provided = req.headers.get("authorization") ?? "";
+    const expected = `Bearer ${token}`;
+    const providedBuf = Buffer.from(provided);
+    const expectedBuf = Buffer.from(expected);
+    if (providedBuf.length !== expectedBuf.length || !timingSafeEqual(providedBuf, expectedBuf)) {
+      return err(401, "인증 실패");
+    }
   }
 
   const form = await req.formData();
