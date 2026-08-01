@@ -17,7 +17,7 @@ import { parseRebarsJson } from "../../lib/analysis/rebarsSchema";
 import type {
   AnalysisResult, ClassifiedRebar, Mat4, Rebar, RebarRecord, Verdict,
 } from "../../lib/analysis/types";
-import AnalysisViewer from "./AnalysisViewer";
+import AnalysisViewer, { LAYER_COLOR } from "./AnalysisViewer";
 import { loadDesign } from "./loadDesign";
 import type { ScanMeta } from "./ScanList";
 import { useAnalysis } from "./useAnalysis";
@@ -59,6 +59,8 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
   const [saveWarning, setSaveWarning] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [showVerdicts, setShowVerdicts] = useState<Verdict[]>(ALL_VERDICTS);
+  const [showDesign, setShowDesign] = useState(true);
+  const [showScanBars, setShowScanBars] = useState(true);
   const [showMesh, setShowMesh] = useState(false);
   const [focusKey, setFocusKey] = useState<string | null>(null);
   // 수동 폴백 입력 (정합 실패 시에만 노출)
@@ -181,28 +183,61 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
           design={output?.designClassified ?? EMPTY_CLASSIFIED}
           scan={output?.scanTransformed ?? EMPTY_CLASSIFIED}
           showVerdicts={showVerdicts}
+          showDesign={showDesign}
+          showScanBars={showScanBars}
           showMesh={showMesh}
           meshUrl={meshUrl}
           registrationMatrix={output?.registration.failed ? null : output?.registration.matrix ?? savedMatrix}
           focusKey={focusKey}
         />
-        <Group gap={6} style={{ position: "absolute", top: 8, left: 8 }}>
-          {ALL_VERDICTS.map((v) => (
-            <Chip
-              key={v} size="xs" checked={showVerdicts.includes(v)}
-              onChange={(on) =>
-                setShowVerdicts((prev) => (on ? [...prev, v] : prev.filter((x) => x !== v)))
-              }
-            >
-              {VERDICT_LABEL[v]}
+
+        {/* 레이어 토글: 설계모델 / 시공 철근을 따로 볼 수 있다 */}
+        <Stack gap={6} style={{ position: "absolute", top: 8, left: 8 }}>
+          <Group gap={6}>
+            <Chip size="xs" color="gray" checked={showDesign} onChange={setShowDesign}>
+              설계모델
             </Chip>
-          ))}
-          {meshUrl && (output?.registration.failed === false || savedMatrix) && (
-            <Chip size="xs" checked={showMesh} onChange={setShowMesh}>
-              스캔 메시
+            <Chip size="xs" checked={showScanBars} onChange={setShowScanBars}>
+              시공 철근
             </Chip>
-          )}
-        </Group>
+            {meshUrl && (output?.registration.failed === false || savedMatrix) && (
+              <Chip size="xs" color="indigo" checked={showMesh} onChange={setShowMesh}>
+                스캔 메시
+              </Chip>
+            )}
+          </Group>
+          {/* 판정별 필터 (시공 철근을 켰을 때만 의미 있음) */}
+          <Group gap={6}>
+            {ALL_VERDICTS.map((v) => (
+              <Chip
+                key={v} size="xs" color={VERDICT_BADGE[v]} disabled={!showScanBars}
+                checked={showVerdicts.includes(v)}
+                onChange={(on) =>
+                  setShowVerdicts((prev) => (on ? [...prev, v] : prev.filter((x) => x !== v)))
+                }
+              >
+                {VERDICT_LABEL[v]}
+              </Chip>
+            ))}
+          </Group>
+        </Stack>
+
+        {/* 색상 범례 */}
+        <Paper
+          withBorder radius="sm" p={8}
+          style={{ position: "absolute", top: 8, right: 8, background: "rgba(255,255,255,0.92)" }}
+        >
+          <Text size="xs" fw={700} mb={4}>색상 안내</Text>
+          <Stack gap={3}>
+            <LegendRow color={LAYER_COLOR.pass} label="정상 (허용오차 이내)" />
+            <LegendRow color={LAYER_COLOR.out_of_tolerance} label="허용초과" />
+            <LegendRow color={LAYER_COLOR.missing} label="미시공 (설계 위치)" />
+            <LegendRow color={LAYER_COLOR.extra} label="도면 외 (설계에 없음)" />
+            <LegendRow color={LAYER_COLOR.design} label="설계모델" />
+            {meshUrl && <LegendRow color={LAYER_COLOR.scanMesh} label="스캔 메시" />}
+          </Stack>
+        </Paper>
+
         {savedRecords && !output && (
           <Badge style={{ position: "absolute", bottom: 8, left: 8 }} variant="light">
             저장된 결과 (3D는 재분석 후 표시)
@@ -321,6 +356,16 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
           </>
         )}
       </Stack>
+    </Group>
+  );
+}
+
+/** 범례 한 줄: 색 스와치 + 설명 */
+function LegendRow({ color, label }: { color: string; label: string }) {
+  return (
+    <Group gap={6} wrap="nowrap">
+      <Box w={12} h={12} style={{ background: color, borderRadius: 3, flexShrink: 0 }} />
+      <Text size="xs">{label}</Text>
     </Group>
   );
 }

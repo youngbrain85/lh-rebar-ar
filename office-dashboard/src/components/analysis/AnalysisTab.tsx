@@ -4,7 +4,7 @@
 import { Alert, Box, Button, Group, Select, Stack, Text, Title } from "@mantine/core";
 import { useEffect, useState } from "react";
 import AnalysisView from "./AnalysisView";
-import ScanList, { type ScanMeta } from "./ScanList";
+import ScanList, { scanTitle, type ScanMeta } from "./ScanList";
 
 type Site = { site_id: number; site_name: string };
 type ARModel = {
@@ -13,6 +13,7 @@ type ARModel = {
   ar_type: string;
   upload_at: string;
   remark?: string | null;
+  source_filename?: string | null;
 };
 
 /// 한 현장에 모델이 여러 개일 수 있다 (BriconLab 원본 설계모델 = built-in,
@@ -68,10 +69,13 @@ export default function AnalysisTab() {
     };
   }, [siteId]);
 
-  const modelOptions = models.map((m) => ({
-    value: m.ar_id,
-    label: `${m.ar_type === "built-in" ? "설계모델" : m.ar_type} · ${m.ar_filename}${m.remark ? ` (${m.remark})` : ""}`,
-  }));
+  // BriconLab은 저장 파일명을 해시로 만든다(b4e8f2a9…usdz). 사람이 알아볼 수 있게
+  // 종류 + 비고/원본파일명 + 등록일 순으로 이름을 만든다.
+  const modelOptions = models.map((m) => {
+    const kind = m.ar_type === "built-in" ? "설계모델" : `${m.ar_type} 모델`;
+    const detail = m.remark || m.source_filename || m.ar_filename;
+    return { value: m.ar_id, label: `${kind} · ${detail} (${m.upload_at.slice(0, 10)})` };
+  });
   const selectedModel = models.find((m) => m.ar_id === arId);
 
   if (open && arId) {
@@ -79,7 +83,7 @@ export default function AnalysisTab() {
       <Stack gap="sm" h="100%">
         <Group justify="space-between">
           <Title order={4}>
-            시공 분석 — 스캔 {open.scan_id.slice(0, 8)}
+            시공 분석 — {scanTitle(open)}
           </Title>
           <Group gap="xs">
             {models.length > 1 && (

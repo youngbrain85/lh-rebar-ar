@@ -45,6 +45,9 @@ export async function POST(req: Request) {
   const capturedAt = form.get("captured_at");
   const rebarsFile = form.get("rebars");
   const meshFile = form.get("mesh");
+  // 선택 필드: 사람이 읽을 이름 ("B동 지하1층 옹벽 東면" 등). 없으면 UI가 촬영시각으로 표시한다.
+  const labelRaw = form.get("label");
+  const label = typeof labelRaw === "string" ? labelRaw.trim().slice(0, 80) : "";
   if (typeof siteId !== "string" || !/^\d+$/.test(siteId)) return err(400, "site_id가 없거나 숫자가 아닙니다");
   if (
     typeof capturedAt !== "string" ||
@@ -65,6 +68,7 @@ export async function POST(req: Request) {
   const meta = {
     scan_id: scanId,
     site_id: Number(siteId),
+    label,
     captured_at: capturedAt,
     uploaded_at: new Date().toISOString(),
     rebar_count: parsed.data.rebars.length,

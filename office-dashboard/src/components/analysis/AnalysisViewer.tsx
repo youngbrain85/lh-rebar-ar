@@ -7,11 +7,22 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import type { ClassifiedRebar, RebarRecord, Verdict } from "../../lib/analysis/types";
 
+/** 뷰어 레이어 색 — 범례(AnalysisView)와 공유하는 단일 출처 */
+export const LAYER_COLOR = {
+  pass: "#2f9e44",
+  out_of_tolerance: "#f08c00",
+  extra: "#1971c2",
+  missing: "#e03131",
+  design: "#8a94a6",
+  scanMesh: "#5c7cfa",
+} as const;
+
+const hex = (c: string) => parseInt(c.slice(1), 16);
 const VERDICT_COLOR: Record<Verdict, number> = {
-  pass: 0x2f9e44,
-  out_of_tolerance: 0xf08c00,
-  extra: 0x1971c2,
-  missing: 0xe03131,
+  pass: hex(LAYER_COLOR.pass),
+  out_of_tolerance: hex(LAYER_COLOR.out_of_tolerance),
+  extra: hex(LAYER_COLOR.extra),
+  missing: hex(LAYER_COLOR.missing),
 };
 
 export interface ViewerProps {
@@ -20,6 +31,10 @@ export interface ViewerProps {
   design: ClassifiedRebar[];
   scan: ClassifiedRebar[];
   showVerdicts: Verdict[];
+  /** 설계모델 고스트 표시 */
+  showDesign: boolean;
+  /** 시공(as-built) 철근 오버레이 표시 — 끄면 설계모델만 보인다 */
+  showScanBars: boolean;
   showMesh: boolean;
   meshUrl: string | null;
   /** 정합 행렬(column-major 16) — 스캔 메시는 스캔 좌표라 이 행렬로 설계 좌표에 겹친다 */
@@ -67,7 +82,8 @@ function rebarGroup(r: ClassifiedRebar, color: number, opacity: number): THREE.G
 }
 
 export default function AnalysisViewer({
-  designObject, records, design, scan, showVerdicts, showMesh, meshUrl, registrationMatrix, focusKey,
+  designObject, records, design, scan, showVerdicts, showDesign, showScanBars,
+  showMesh, meshUrl, registrationMatrix, focusKey,
 }: ViewerProps) {
   const mountRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<{
@@ -137,7 +153,7 @@ export default function AnalysisViewer({
       const mesh = n as THREE.Mesh;
       if (mesh.isMesh) {
         mesh.material = new THREE.MeshStandardMaterial({
-          color: 0x8a94a6, transparent: true, opacity: 0.25, depthWrite: false,
+          color: hex(LAYER_COLOR.design), transparent: true, opacity: 0.25, depthWrite: false,
         });
       }
     });
@@ -155,12 +171,18 @@ export default function AnalysisViewer({
     };
   }, [designObject]);
 
+  // ---- 설계모델 표시/숨김 (따로 보기) ----
+  useEffect(() => {
+    if (designObject) designObject.visible = showDesign;
+  }, [designObject, showDesign]);
+
   // ---- 판정 오버레이 (records 변경 시 재구성) ----
   useEffect(() => {
     const s = sceneRef.current;
     if (!s) return;
     disposeChildren(s.overlay);
     s.keyed.clear();
+    if (!showScanBars) return; // 설계모델만 보기
     const designById = new Map(design.map((r) => [r.id, r]));
     const scanById = new Map(scan.map((r) => [r.id, r]));
     for (const rec of records) {
@@ -180,7 +202,7 @@ export default function AnalysisViewer({
         s.keyed.set(key, group);
       }
     }
-  }, [records, design, scan, showVerdicts]);
+  }, [records, design, scan, showVerdicts, showScanBars]);
 
   // ---- 스캔 메시 토글 ----
   useEffect(() => {
@@ -195,7 +217,7 @@ export default function AnalysisViewer({
         const mesh = n as THREE.Mesh;
         if (mesh.isMesh) {
           mesh.material = new THREE.MeshStandardMaterial({
-            color: 0x5c7cfa, transparent: true, opacity: 0.3, depthWrite: false,
+            color: hex(LAYER_COLOR.scanMesh), transparent: true, opacity: 0.3, depthWrite: false,
           });
         }
       });
