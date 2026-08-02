@@ -1,0 +1,237 @@
+/*!
+ * BRICON LAB Design System — v1 (2026-08-01)
+ * 프레임워크 무관 드롭인 스타일시트. 링크 한 줄로 브랜드 톤을 가져다 쓴다.
+ *
+ *   <link rel="stylesheet" href="https://office-dashboard-xi.vercel.app/brand/briconlab.css">
+ *   <link rel="preconnect" href="https://fonts.googleapis.com">
+ *   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+ *
+ * 색은 briconlab.com에서 직접 샘플링했다(네이비 #002961, 바탕 #f4f4f4, 잉크 #333).
+ * 자세한 사용 규칙은 docs/design-system.md 참고.
+ */
+
+/* ─────────────────────────────────────────────── 1. 토큰 */
+:root {
+  /* 브랜드 */
+  --bl-navy: #002961; /* 로고와 동일 — 강조·헤딩·주요 버튼 */
+  --bl-navy-8: #345684;
+  --bl-navy-6: #4e73a9;
+  --bl-navy-2: #b9c8de;
+  --bl-navy-0: #eef2f8; /* 선택 상태 배경 */
+
+  /* 바탕·면 */
+  --bl-paper: #f4f4f4; /* 페이지 바탕 */
+  --bl-surface: #ffffff; /* 카드·패널 */
+  --bl-dot: rgba(0, 41, 97, 0.11); /* 격자 점 */
+  --bl-rule: rgba(0, 41, 97, 0.14); /* 얇은 구분선 */
+
+  /* 글자 */
+  --bl-ink: #333333; /* 본문 */
+  --bl-ink-dim: #6b7280; /* 보조 설명 */
+  --bl-ink-faint: rgba(0, 41, 97, 0.55); /* 마이크로 라벨 */
+
+  /* 판정 색 — 철근 분석의 의미 색. 앱 간 반드시 동일하게 유지할 것 */
+  --bl-pass: #2f9e44; /* 정상 (허용오차 이내) */
+  --bl-warn: #f08c00; /* 허용초과 */
+  --bl-missing: #e03131; /* 미시공 */
+  --bl-extra: #1971c2; /* 도면 외 */
+  --bl-mesh: #5c7cfa; /* 스캔 메시 참조 레이어 */
+  --bl-ghost: #8a94a6; /* 설계모델 고스트 */
+
+  /* 서체 */
+  --bl-font-sans: "Noto Sans KR", system-ui, -apple-system, sans-serif;
+  --bl-font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", monospace;
+
+  /* 리듬 */
+  --bl-radius: 4px;
+  --bl-radius-lg: 8px;
+  --bl-gap: 12px;
+  --bl-dot-size: 22px;
+
+  --bl-shadow-hover: 0 6px 18px rgba(0, 41, 97, 0.09);
+  --bl-ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* ─────────────────────────────────────────────── 2. 바탕 */
+.bl-ground,
+body.bl-ground {
+  color: var(--bl-ink);
+  background-color: var(--bl-paper);
+  /* 점 격자 — 선 모눈보다 조용해서 흰 카드가 또렷하게 뜬다 */
+  background-image: radial-gradient(var(--bl-dot) 1px, transparent 1px);
+  background-size: var(--bl-dot-size) var(--bl-dot-size);
+  background-position: -1px -1px;
+  background-attachment: fixed;
+  font-family: var(--bl-font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* ─────────────────────────────────────────────── 3. 타이포 */
+.bl-title {
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1.2;
+  color: var(--bl-ink);
+  margin: 0;
+}
+.bl-title--xl { font-size: 24px; }
+.bl-title--lg { font-size: 19px; }
+.bl-title--md { font-size: 16px; }
+
+.bl-dim { color: var(--bl-ink-dim); font-size: 13px; }
+
+/* 섹션 위 작은 대문자 라벨 — 화면의 위계를 조용히 잡아준다 */
+.bl-microlabel {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--bl-ink-faint);
+}
+
+/* 치수·ID·좌표는 반드시 고정폭 + tabular-nums (자리수가 흔들리면 계측값으로 안 읽힌다) */
+.bl-mono {
+  font-family: var(--bl-font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ─────────────────────────────────────────────── 4. 면(surface) */
+.bl-card {
+  background: var(--bl-surface);
+  border: 1px solid var(--bl-rule);
+  border-radius: var(--bl-radius);
+  padding: 12px;
+}
+.bl-card--interactive {
+  cursor: pointer;
+  transition: box-shadow 140ms ease, transform 140ms ease, border-color 140ms ease;
+}
+.bl-card--interactive:hover {
+  box-shadow: var(--bl-shadow-hover);
+  transform: translateY(-1px);
+  border-color: var(--bl-navy);
+}
+/* 선택된 항목: 왼쪽에 네이비 인디케이터 */
+.bl-card--selected {
+  border-color: var(--bl-navy);
+  background: var(--bl-navy-0);
+  box-shadow: inset 3px 0 0 var(--bl-navy);
+}
+
+.bl-panel {
+  background: var(--bl-surface);
+  border: 1px solid var(--bl-rule);
+  border-radius: var(--bl-radius);
+}
+
+.bl-hairline { border-color: var(--bl-rule) !important; }
+.bl-divider { border: 0; border-top: 1px solid var(--bl-rule); margin: 12px 0; }
+
+/* 상단 바 — 반투명 + 블러로 아래 내용이 비치게 */
+.bl-header {
+  background: rgba(255, 255, 255, 0.86);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--bl-rule);
+}
+
+/* ─────────────────────────────────────────────── 5. 컨트롤 */
+.bl-btn {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  padding: 6px 12px;
+  border-radius: var(--bl-radius);
+  border: 1px solid transparent;
+  background: var(--bl-navy);
+  color: #fff;
+  cursor: pointer;
+  transition: filter 120ms ease;
+}
+.bl-btn:hover { filter: brightness(1.15); }
+.bl-btn:disabled { opacity: 0.45; cursor: not-allowed; filter: none; }
+
+.bl-btn--ghost {
+  background: transparent;
+  color: var(--bl-ink);
+  border-color: var(--bl-rule);
+}
+.bl-btn--ghost:hover { background: var(--bl-navy-0); filter: none; }
+
+.bl-btn--danger { background: var(--bl-missing); }
+
+.bl-input {
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 10px;
+  border: 1px solid var(--bl-rule);
+  border-radius: var(--bl-radius);
+  background: var(--bl-surface);
+  color: var(--bl-ink);
+}
+.bl-input:focus {
+  outline: none;
+  border-color: var(--bl-navy);
+  box-shadow: 0 0 0 2px rgba(0, 41, 97, 0.12);
+}
+
+/* ─────────────────────────────────────────────── 6. 배지·판정 */
+.bl-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 4px 7px;
+  border-radius: var(--bl-radius);
+  background: var(--bl-navy-0);
+  color: var(--bl-navy);
+}
+.bl-badge--pass { background: #eaf6ed; color: var(--bl-pass); }
+.bl-badge--warn { background: #fef3e2; color: #b56a00; }
+.bl-badge--missing { background: #fdecec; color: var(--bl-missing); }
+.bl-badge--extra { background: #e7f0fa; color: var(--bl-extra); }
+.bl-badge--live { background: var(--bl-missing); color: #fff; }
+
+/* 색 스와치 — 3D 뷰어 범례에 쓴다 */
+.bl-swatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  flex: 0 0 auto;
+}
+
+/* ─────────────────────────────────────────────── 7. 모션 */
+@keyframes bl-rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+/* 목록 항목에 인덱스별 animation-delay(약 35~40ms)를 주면 순차 등장한다 */
+.bl-rise { animation: bl-rise 0.32s var(--bl-ease) both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .bl-rise { animation: none; }
+  .bl-card--interactive { transition: none; }
+}
+
+/* ─────────────────────────────────────────────── 8. 스크롤바 */
+.bl-ground * {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 41, 97, 0.25) transparent;
+}
+.bl-ground *::-webkit-scrollbar { width: 10px; height: 10px; }
+.bl-ground *::-webkit-scrollbar-thumb {
+  background: rgba(0, 41, 97, 0.22);
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+.bl-ground *::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 41, 97, 0.4);
+  background-clip: content-box;
+}
+
+::selection { background: rgba(0, 41, 97, 0.16); }

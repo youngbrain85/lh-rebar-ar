@@ -129,6 +129,16 @@ AnchorEntity(world:)          ← world-fixed (NOT ARAnchor-backed — see gotch
 | Capture | `Services/ScreenCaptureService.swift` |
 | Main AR screen | `UI/Screens/ARPlacementView.swift` (large — all overlays wired here) |
 
+### 디자인 시스템
+
+브리콘랩 납품 화면 공통 규칙: `docs/design-system.md`.
+드롭인 스타일시트와 로고 자산은 대시보드가 호스팅한다 —
+`https://office-dashboard-xi.vercel.app/brand/briconlab.css`,
+`/brand/briconlab-logo.png`(워드마크), `/brand/briconlab-symbol.png`(심볼),
+`/brand/briconlab-icon-512.png`(아이콘 소스).
+라이다 스캔 앱 등 다른 도구도 이 문서·자산을 따른다. 판정 색(정상/허용초과/
+미시공/도면외)은 앱 간 반드시 동일해야 하므로, 바꿀 때는 문서와 두 앱을 함께 고친다.
+
 ### Dashboard routes
 | Route | Purpose |
 |---|---|
