@@ -1,26 +1,89 @@
 @import "tailwindcss";
 
+/* 도면(drafting) 톤: 종이빛 바탕 + 아주 옅은 모눈, 네이비 잉크 */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --paper: #f7f6f3;
+  --paper-line: rgba(0, 41, 97, 0.055);
+  --ink: #1b1f27;
+  --rule: rgba(0, 41, 97, 0.12);
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html,
+body {
+  padding: 0;
+  margin: 0;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  color: var(--ink);
+  background-color: var(--paper);
+  /* 24px 모눈 — 화면을 도면지처럼 보이게 하는 최소한의 질감 */
+  background-image:
+    linear-gradient(var(--paper-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--paper-line) 1px, transparent 1px);
+  background-size: 24px 24px;
+  background-attachment: fixed;
+  font-family: var(--font-sans), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* 숫자는 자리수를 맞춰 계측값처럼 읽히게 */
+.mono {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 라벨용 마이크로 캡션 */
+.microlabel {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(0, 41, 97, 0.55);
+}
+
+::selection {
+  background: rgba(0, 41, 97, 0.16);
+}
+
+/* 스크롤바: 얇고 조용하게 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 41, 97, 0.25) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: rgba(0, 41, 97, 0.22);
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 41, 97, 0.4);
+  background-clip: content-box;
+}
+
+/* 목록 진입 시 살짝 떠오르는 등장 — 과하지 않게 한 번만 */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.rise {
+  animation: rise 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rise {
+    animation: none;
+  }
 }

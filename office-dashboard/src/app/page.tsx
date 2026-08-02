@@ -1,79 +1,44 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
-  Alert,
-  AppShell,
-  Badge,
-  Box,
-  Button,
-  Card,
-  Center,
-  Drawer,
-  Group,
-  Loader,
-  Modal,
-  NavLink,
-  Paper,
-  Stack,
-  Table,
-  Text,
-  Title,
+  Alert, AppShell, Badge, Box, Card, Center, Group, Loader, NavLink, Stack, Text, TextInput, Title,
 } from "@mantine/core";
-import dynamic from "next/dynamic";
-import LiveSession from "../components/LiveSession";
-import AnalysisTab from "../components/analysis/AnalysisTab";
-
-// three.js is heavy and browser-only — load it lazily when the 3D modal opens
-// so it stays out of the initial bundle.
-const ModelViewer = dynamic(() => import("../components/ModelViewer"), {
-  ssr: false,
-  loading: () => null,
-});
-
-type Site = { site_id: number; site_name: string };
-type ARModel = {
-  scan_id: string;
-  ar_id: string;
-  site_id: number;
-  ar_filename: string;
-  ar_type: string;
-  upload_at: string;
-};
-type View = "sites" | "live" | "analysis";
-
-const DEMO_ROOM = "ar-demo";
+import SiteDetail, { type Site } from "../components/SiteDetail";
 
 export default function Page() {
-  const [view, setView] = useState<View>("sites");
-  const [liveRoom, setLiveRoom] = useState(DEMO_ROOM);
+  const [openSite, setOpenSite] = useState<Site | null>(null);
 
   return (
-    <AppShell header={{ height: 58 }} navbar={{ width: 220, breakpoint: "sm" }} padding="md">
-      <AppShell.Header>
-        <Group h="100%" px="md" justify="space-between">
-          <Group gap={10}>
+    <AppShell header={{ height: 60 }} navbar={{ width: 232, breakpoint: "sm" }} padding="lg">
+      <AppShell.Header
+        style={{
+          borderBottom: "1px solid var(--rule)",
+          background: "rgba(255,255,255,0.86)",
+          backdropFilter: "blur(8px)",
+        }}
+      >
+        <Group h="100%" px="lg" justify="space-between">
+          <Group gap={12}>
             <Box
               w={30}
               h={30}
               style={{
                 background: "var(--mantine-color-brand-9)",
-                borderRadius: 6,
                 display: "grid",
                 placeItems: "center",
+                clipPath: "polygon(0 0, 100% 0, 100% 72%, 72% 100%, 0 100%)",
               }}
             >
-              <Text c="white" fw={800} size="sm">
+              <Text c="white" fw={700} size="sm" lh={1}>
                 B
               </Text>
             </Box>
             <div>
-              <Text fw={800} size="sm" c="brand.9" lh={1.1}>
+              <Text fw={700} size="sm" c="brand.9" lh={1.15} style={{ letterSpacing: "0.02em" }}>
                 BRICON LAB
               </Text>
-              <Text size="xs" c="dimmed" lh={1.1}>
-                현장 AR 협업 대시보드
-              </Text>
+              <span className="microlabel">현장 QA 대시보드</span>
             </div>
           </Group>
           <Badge variant="dot" color="teal" size="sm">
@@ -82,95 +47,73 @@ export default function Page() {
         </Group>
       </AppShell.Header>
 
-      <AppShell.Navbar p="xs">
+      <AppShell.Navbar
+        p="sm"
+        style={{ borderRight: "1px solid var(--rule)", background: "rgba(255,255,255,0.7)" }}
+      >
         <NavLink
           label="현장 관리"
-          description="현장 · 3D 모델"
-          active={view === "sites"}
-          onClick={() => setView("sites")}
+          description="3D 모델 · 시공 분석 · 실시간 협업"
+          active
           leftSection={<Text size="sm">▦</Text>}
-        />
-        <NavLink
-          label="라이브 협업"
-          description="실시간 AR 화면"
-          active={view === "live"}
-          onClick={() => setView("live")}
-          leftSection={<Text size="sm">◉</Text>}
-        />
-        <NavLink
-          label="시공 분석"
-          description="설계 vs 시공 비교"
-          active={view === "analysis"}
-          onClick={() => setView("analysis")}
-          leftSection={<Text size="sm">▥</Text>}
+          onClick={() => setOpenSite(null)}
         />
         <Box mt="auto" p="xs">
-          <Text size="xs" c="dimmed">
-            LiveKit · ar-w5h0quhi
-          </Text>
-          <Text size="xs" c="dimmed">
-            BriconLab API · :50001
-          </Text>
+          <Stack gap={2}>
+            <span className="microlabel">연결</span>
+            <Text size="xs" c="dimmed" className="mono">
+              LiveKit · ar-w5h0quhi
+            </Text>
+            <Text size="xs" c="dimmed" className="mono">
+              BriconLab · :50001
+            </Text>
+          </Stack>
         </Box>
       </AppShell.Navbar>
 
-      <AppShell.Main style={{ background: "var(--mantine-color-gray-0)", height: "100dvh" }}>
-        {view === "sites" ? (
-          <SitesView
-            onLive={(room) => {
-              setLiveRoom(room);
-              setView("live");
-            }}
-          />
-        ) : view === "analysis" ? (
-          <AnalysisTab />
-        ) : (
-          <Box h="calc(100dvh - 58px - 2 * var(--mantine-spacing-md))">
-            <LiveSession room={liveRoom} onLeave={() => setView("sites")} />
-          </Box>
-        )}
+      <AppShell.Main style={{ height: "100dvh" }}>
+        <Box h="calc(100dvh - 60px - 2 * var(--mantine-spacing-lg))">
+          {openSite ? (
+            <SiteDetailLoader site={openSite} onBack={() => setOpenSite(null)} />
+          ) : (
+            <SitesView onOpen={setOpenSite} />
+          )}
+        </Box>
       </AppShell.Main>
     </AppShell>
   );
 }
 
-/* ------------------------------------------------------------------ sites */
+/* --------------------------------------------------------------- 현장 목록 */
 
-function SitesView({ onLive }: { onLive: (room: string) => void }) {
-  const [sites, setSites] = useState<Site[]>([]);
-  const [loading, setLoading] = useState(true);
+function SitesView({ onOpen }: { onOpen: (s: Site) => void }) {
+  const [sites, setSites] = useState<Site[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [openSite, setOpenSite] = useState<Site | null>(null);
   const [liveRooms, setLiveRooms] = useState<Record<string, number>>({});
+  const [q, setQ] = useState("");
 
   useEffect(() => {
     (async () => {
       try {
-        const r = await fetch("/api/sites");
-        const d = await r.json();
+        const d = await (await fetch("/api/sites")).json();
         if (d.status !== "success") throw new Error(d.message || "현장 조회 실패");
         setSites(d.site_list || []);
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
-      } finally {
-        setLoading(false);
       }
     })();
   }, []);
 
-  // Poll active LiveKit rooms so rows can show a LIVE badge the moment a field
-  // device starts sharing.
+  // 현장별 LIVE 배지 — 카드에서 바로 진행 중인 협업을 알아볼 수 있게
   useEffect(() => {
     let stop = false;
     const tick = async () => {
       try {
-        const r = await fetch("/api/live");
-        const d = await r.json();
-        if (!stop) {
-          const map: Record<string, number> = {};
-          for (const room of d.rooms || []) map[room.name] = room.participants;
-          setLiveRooms(map);
-        }
+        const d = await (await fetch("/api/live")).json();
+        if (stop) return;
+        const map: Record<string, number> = {};
+        for (const room of d.rooms || []) map[room.name] = room.participants;
+        setLiveRooms(map);
       } catch {
         /* transient */
       }
@@ -183,192 +126,136 @@ function SitesView({ onLive }: { onLive: (room: string) => void }) {
     };
   }, []);
 
+  const filtered = useMemo(() => {
+    if (!sites) return null;
+    const t = q.trim();
+    return t ? sites.filter((s) => s.site_name.includes(t) || String(s.site_id) === t) : sites;
+  }, [sites, q]);
+
   return (
-    <Stack gap="md">
-      <Group justify="space-between">
+    <Stack gap="lg" h="100%">
+      <Group justify="space-between" align="flex-end">
         <div>
-          <Title order={4}>시공 현장</Title>
-          <Text size="sm" c="dimmed">
-            현장을 선택해 3D 모델을 보거나 실시간 협업을 시작하세요
+          <span className="microlabel">SITES</span>
+          <Title order={2} lh={1.2} style={{ letterSpacing: "-0.03em" }}>
+            시공 현장
+          </Title>
+          <Text size="sm" c="dimmed" mt={4}>
+            현장을 선택하면 3D 모델 · 시공 분석 · 실시간 협업으로 들어갑니다
           </Text>
         </div>
-        <Group gap="xs">
-          {liveRooms["ar-demo"] > 0 && (
-            <Badge variant="filled" color="red" size="lg">
-              데모 세션 LIVE
-            </Badge>
-          )}
-          <Badge variant="light" color="brand" size="lg">
-            {loading ? "…" : `${sites.length}개 현장`}
+        <Group gap="sm">
+          <TextInput
+            size="xs"
+            w={220}
+            placeholder="현장명 또는 번호 검색"
+            value={q}
+            onChange={(e) => setQ(e.currentTarget.value)}
+          />
+          <Badge variant="light" color="brand" size="lg" className="mono">
+            {sites ? `${filtered?.length ?? 0}/${sites.length}` : "…"}
           </Badge>
         </Group>
       </Group>
 
-      {loading ? (
-        <Center py="xl">
-          <Loader size="sm" />
-        </Center>
-      ) : error ? (
+      {error ? (
         <Alert color="red" title="현장을 불러오지 못했습니다">
           {error}
         </Alert>
+      ) : filtered == null ? (
+        <Center py="xl">
+          <Loader size="sm" />
+        </Center>
+      ) : filtered.length === 0 ? (
+        <Alert color="gray" variant="light">
+          검색 결과가 없습니다
+        </Alert>
       ) : (
-        <Paper withBorder radius="md">
-          <Table striped highlightOnHover verticalSpacing="sm">
-            <Table.Thead>
-              <Table.Tr>
-                <Table.Th w={70}>ID</Table.Th>
-                <Table.Th>현장명</Table.Th>
-                <Table.Th w={220} ta="right">
-                  작업
-                </Table.Th>
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-              {sites.map((s) => {
-                const room = `site-${s.site_id}`;
-                const isLive = (liveRooms[room] || 0) > 0;
-                return (
-                  <Table.Tr key={s.site_id}>
-                    <Table.Td>
-                      <Text ff="monospace" size="sm" c="dimmed">
+        <Box style={{ flex: 1, minHeight: 0, overflowY: "auto", paddingRight: 4 }}>
+          <Stack gap="xs">
+            {filtered.map((s, i) => {
+              const live = (liveRooms[`site-${s.site_id}`] || 0) > 0;
+              return (
+                <Card
+                  key={s.site_id}
+                  className="rise"
+                  padding="md"
+                  onClick={() => onOpen(s)}
+                  style={{
+                    cursor: "pointer",
+                    animationDelay: `${Math.min(i, 12) * 35}ms`,
+                    background: "white",
+                    transition: "box-shadow 140ms ease, transform 140ms ease, border-color 140ms ease",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.boxShadow = "0 6px 18px rgba(0,41,97,0.09)";
+                    e.currentTarget.style.transform = "translateY(-1px)";
+                    e.currentTarget.style.borderColor = "var(--mantine-color-brand-9)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.boxShadow = "";
+                    e.currentTarget.style.transform = "";
+                    e.currentTarget.style.borderColor = "";
+                  }}
+                >
+                  <Group justify="space-between" wrap="nowrap">
+                    <Group gap="md" wrap="nowrap" style={{ minWidth: 0 }}>
+                      <Text className="mono" size="lg" c="brand.9" fw={600} style={{ opacity: 0.35 }}>
                         {String(s.site_id).padStart(2, "0")}
                       </Text>
-                    </Table.Td>
-                    <Table.Td>
-                      <Group gap="xs">
-                        <Text size="sm" fw={500}>
-                          {s.site_name}
+                      <Box style={{ minWidth: 0 }}>
+                        <Group gap={8}>
+                          <Text fw={600} size="sm" truncate>
+                            {s.site_name}
+                          </Text>
+                          {live && (
+                            <Badge size="xs" color="red" variant="filled">
+                              ● LIVE
+                            </Badge>
+                          )}
+                        </Group>
+                        <Text size="xs" c="dimmed" mt={2}>
+                          3D 모델 · 시공 분석 · 실시간 협업
                         </Text>
-                        {isLive && (
-                          <Badge size="xs" variant="filled" color="red">
-                            ● LIVE
-                          </Badge>
-                        )}
-                      </Group>
-                    </Table.Td>
-                    <Table.Td ta="right">
-                      <Group gap="xs" justify="flex-end">
-                        <Button size="xs" variant="light" onClick={() => setOpenSite(s)}>
-                          3D 모델
-                        </Button>
-                        <Button
-                          size="xs"
-                          color={isLive ? "red" : "brand"}
-                          onClick={() => onLive(room)}
-                        >
-                          {isLive ? "라이브 보기" : "실시간 협업"}
-                        </Button>
-                      </Group>
-                    </Table.Td>
-                  </Table.Tr>
-                );
-              })}
-            </Table.Tbody>
-          </Table>
-        </Paper>
+                      </Box>
+                    </Group>
+                    <Text c="brand.9" style={{ opacity: 0.4 }}>
+                      →
+                    </Text>
+                  </Group>
+                </Card>
+              );
+            })}
+          </Stack>
+        </Box>
       )}
-
-      <Drawer
-        opened={openSite != null}
-        onClose={() => setOpenSite(null)}
-        position="right"
-        size="md"
-        title={
-          <Text fw={700} size="sm">
-            {openSite?.site_name}
-          </Text>
-        }
-      >
-        {openSite && (
-          <SiteModelsPanel site={openSite} onLive={() => onLive(`site-${openSite.site_id}`)} />
-        )}
-      </Drawer>
     </Stack>
   );
 }
 
-/* ----------------------------------------------------------- site models */
+/* ---------------------------------------------------- 현장 상세(LIVE 상태 포함) */
 
-function SiteModelsPanel({ site, onLive }: { site: Site; onLive: () => void }) {
-  const [models, setModels] = useState<ARModel[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [viewerModel, setViewerModel] = useState<ARModel | null>(null);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const r = await fetch(`/api/models?site_id=${site.site_id}`);
-      const d = await r.json();
-      if (d.status !== "success") throw new Error(d.message || "모델 조회 실패");
-      setModels(d.ar_list || []);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setLoading(false);
-    }
+function SiteDetailLoader({ site, onBack }: { site: Site; onBack: () => void }) {
+  const [live, setLive] = useState(false);
+  useEffect(() => {
+    let stop = false;
+    const tick = async () => {
+      try {
+        const d = await (await fetch("/api/live")).json();
+        if (stop) return;
+        const room = (d.rooms || []).find((r: { name: string }) => r.name === `site-${site.site_id}`);
+        setLive((room?.participants || 0) > 0);
+      } catch {
+        /* transient */
+      }
+    };
+    void tick();
+    const id = setInterval(tick, 6000);
+    return () => {
+      stop = true;
+      clearInterval(id);
+    };
   }, [site.site_id]);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  return (
-    <Stack gap="sm">
-      {loading ? (
-        <Center py="lg">
-          <Loader size="sm" />
-        </Center>
-      ) : error ? (
-        <Alert color="red">{error}</Alert>
-      ) : models.length === 0 ? (
-        <Alert color="gray" variant="light">
-          이 현장에 등록된 AR 모델이 없습니다
-        </Alert>
-      ) : (
-        models.map((m) => (
-          <Card key={m.ar_id} withBorder radius="md" padding="sm">
-            <Group justify="space-between" wrap="nowrap">
-              <div style={{ minWidth: 0 }}>
-                <Text size="sm" fw={600} truncate>
-                  {m.ar_filename}
-                </Text>
-                <Group gap={6} mt={2}>
-                  <Badge size="xs" variant="light" color="brand">
-                    {m.ar_type}
-                  </Badge>
-                  <Text size="xs" c="dimmed">
-                    {m.upload_at}
-                  </Text>
-                </Group>
-              </div>
-              <Group gap="xs" wrap="nowrap">
-                <Button size="xs" variant="default" onClick={() => setViewerModel(m)}>
-                  3D 보기
-                </Button>
-                <Button size="xs" onClick={onLive}>
-                  협업
-                </Button>
-              </Group>
-            </Group>
-          </Card>
-        ))
-      )}
-
-      <Modal
-        opened={viewerModel != null}
-        onClose={() => setViewerModel(null)}
-        size="80%"
-        title={
-          <Text fw={700} size="sm">
-            {viewerModel?.ar_filename} — 3D 미리보기
-          </Text>
-        }
-      >
-        <Box h="65vh">{viewerModel && <ModelViewer arId={viewerModel.ar_id} />}</Box>
-      </Modal>
-    </Stack>
-  );
+  return <SiteDetail site={site} live={live} onBack={onBack} />;
 }

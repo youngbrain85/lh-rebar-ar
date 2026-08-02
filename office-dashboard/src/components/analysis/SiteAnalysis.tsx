@@ -1,12 +1,13 @@
-// office-dashboard/src/components/analysis/AnalysisTab.tsx
+// office-dashboard/src/components/analysis/SiteAnalysis.tsx
 "use client";
 
-import { Alert, Box, Button, Group, Select, Stack, Text, Title } from "@mantine/core";
+// 한 현장의 시공 분석: 설계모델 선택 → 스캔 목록 → 분석 화면.
+// (현장 선택은 상위 화면이 이미 했으므로 여기서는 다루지 않는다)
+import { Alert, Box, Button, Group, Select, Stack, Text } from "@mantine/core";
 import { useEffect, useState } from "react";
 import AnalysisView from "./AnalysisView";
 import ScanList, { scanTitle, type ScanMeta } from "./ScanList";
 
-type Site = { site_id: number; site_name: string };
 type ARModel = {
   ar_id: string;
   ar_filename: string;
@@ -24,35 +25,15 @@ function pickDefaultModel(models: ARModel[]): string | null {
   return (models.find((m) => m.ar_type === "built-in") ?? models[0]).ar_id;
 }
 
-/// 시공 분석 탭 컨테이너: 현장 선택 → 설계모델 선택 → 스캔 목록 → 분석 화면.
-export default function AnalysisTab() {
-  const [sites, setSites] = useState<Site[]>([]);
-  const [siteId, setSiteId] = useState<number | null>(null);
+export default function SiteAnalysis({ siteId }: { siteId: number }) {
   const [models, setModels] = useState<ARModel[]>([]);
   const [arId, setArId] = useState<string | null>(null);
   const [open, setOpen] = useState<ScanMeta | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    (async () => {
-      try {
-        const d = await (await fetch("/api/sites")).json();
-        if (d.status !== "success") throw new Error(d.message || "현장 조회 실패");
-        setSites(d.site_list || []);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
-      }
-    })();
-  }, []);
-
-  // 현장이 바뀌면 그 현장의 설계모델 목록을 다시 읽고 기본값을 고른다
-  useEffect(() => {
-    if (siteId == null) {
-      setModels([]);
-      setArId(null);
-      return;
-    }
     let cancelled = false;
+    setOpen(null);
     (async () => {
       try {
         const d = await (await fetch(`/api/models?site_id=${siteId}`)).json();
@@ -80,17 +61,16 @@ export default function AnalysisTab() {
 
   if (open && arId) {
     return (
-      <Stack gap="sm" h="100%">
-        <Group justify="space-between">
-          <Title order={4}>
-            시공 분석 — {scanTitle(open)}
-          </Title>
-          <Group gap="xs">
+      <Stack gap="sm" style={{ flex: 1, minHeight: 0 }}>
+        <Group justify="space-between" wrap="nowrap">
+          <Text fw={600} size="sm" truncate>
+            {scanTitle(open)}
+          </Text>
+          <Group gap="xs" wrap="nowrap">
             {models.length > 1 && (
               <Select
                 size="xs"
-                w={320}
-                label={undefined}
+                w={300}
                 data={modelOptions}
                 value={arId}
                 onChange={(v) => v && setArId(v)}
@@ -98,7 +78,7 @@ export default function AnalysisTab() {
               />
             )}
             <Button variant="default" size="xs" onClick={() => setOpen(null)}>
-              ← 목록으로
+              ← 스캔 목록
             </Button>
           </Group>
         </Group>
@@ -111,34 +91,19 @@ export default function AnalysisTab() {
   }
 
   return (
-    <Stack gap="md">
-      <div>
-        <Title order={4}>시공 분석</Title>
-        <Text size="sm" c="dimmed">
-          라이다 스캔(as-built)을 설계모델과 비교해 미시공·허용초과 철근을 찾습니다
-        </Text>
-      </div>
+    <Stack gap="md" style={{ flex: 1, minHeight: 0 }}>
       {error && <Alert color="red">{error}</Alert>}
-      <Group align="flex-end" gap="sm">
-        <Select
-          label="현장"
-          placeholder="현장을 선택하세요"
-          searchable
-          data={sites.map((s) => ({ value: String(s.site_id), label: `${s.site_id} · ${s.site_name}` }))}
-          value={siteId == null ? null : String(siteId)}
-          onChange={(v) => setSiteId(v == null ? null : Number(v))}
-          w={420}
-        />
-        {siteId != null && models.length > 0 && (
+      {models.length > 0 && (
+        <Group align="flex-end" gap="sm">
           <Select
             label="비교할 설계모델"
             data={modelOptions}
             value={arId}
             onChange={(v) => v && setArId(v)}
-            w={420}
+            w={460}
           />
-        )}
-      </Group>
+        </Group>
+      )}
       {selectedModel && selectedModel.ar_type !== "built-in" && (
         <Alert color="yellow" variant="light">
           선택한 모델의 종류가 <b>{selectedModel.ar_type}</b>입니다. 시공 분석의 비교 기준은
@@ -146,9 +111,7 @@ export default function AnalysisTab() {
           나옵니다.
         </Alert>
       )}
-      {siteId != null && (
-        <ScanList siteId={siteId} arId={arId} onOpen={(scan) => setOpen(scan)} />
-      )}
+      <ScanList siteId={siteId} arId={arId} onOpen={(scan) => setOpen(scan)} />
     </Stack>
   );
 }
