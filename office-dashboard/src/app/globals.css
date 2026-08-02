@@ -4,7 +4,7 @@
    briconlab.com에서 샘플링한 색을 그대로 쓴다. */
 :root {
   --paper: #f4f4f4;
-  --paper-line: rgba(0, 41, 97, 0.032);
+  --paper-dot: rgba(0, 41, 97, 0.11);
   --ink: #333333;
   --navy: #002961;
   --rule: rgba(0, 41, 97, 0.14);
@@ -19,11 +19,10 @@ body {
 body {
   color: var(--ink);
   background-color: var(--paper);
-  /* 32px 모눈 — 기업 사이트의 정갈한 인상을 해치지 않을 만큼만 남긴 질감 */
-  background-image:
-    linear-gradient(var(--paper-line) 1px, transparent 1px),
-    linear-gradient(90deg, var(--paper-line) 1px, transparent 1px);
-  background-size: 32px 32px;
+  /* 격자 점(dot grid) — 선 모눈보다 조용해서 흰 카드가 더 또렷하게 뜬다 */
+  background-image: radial-gradient(var(--paper-dot) 1px, transparent 1px);
+  background-size: 22px 22px;
+  background-position: -1px -1px;
   background-attachment: fixed;
   font-family: var(--font-sans), system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
