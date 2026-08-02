@@ -3,14 +3,14 @@ import "./globals.css";
 
 import type { Metadata } from "next";
 import { ColorSchemeScript, MantineProvider } from "@mantine/core";
-import { IBM_Plex_Mono, IBM_Plex_Sans_KR } from "next/font/google";
+import { IBM_Plex_Mono, Noto_Sans_KR } from "next/font/google";
 import { theme } from "../theme";
 
-// 계측기·도면 톤: 본문은 한글을 지원하는 IBM Plex Sans KR,
+// 본문은 브리콘랩 웹사이트와 같은 계열(Noto Sans KR)로 기업 톤을 맞추고,
 // 치수·ID 등 숫자는 IBM Plex Mono(고정폭)로 자리수를 맞춘다.
-const sans = IBM_Plex_Sans_KR({
+const sans = Noto_Sans_KR({
   subsets: ["latin"],
-  weight: ["300", "400", "500", "600", "700"],
+  weight: ["300", "400", "500", "700"],
   variable: "--font-sans",
   display: "swap",
 });
@@ -23,7 +23,7 @@ const mono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "BriconLab 현장 대시보드",
+  title: "브리콘랩 BRICON LAB · 현장 대시보드",
   description: "현장 관리 · 3D 모델 · 시공 분석 · 실시간 AR 협업",
 };
 

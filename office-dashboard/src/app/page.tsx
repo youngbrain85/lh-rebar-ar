@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   Alert, AppShell, Badge, Box, Card, Center, Group, Loader, NavLink, Stack, Text, TextInput, Title,
 } from "@mantine/core";
+import Image from "next/image";
 import SiteDetail, { type Site } from "../components/SiteDetail";
 
 export default function Page() {
@@ -19,27 +20,23 @@ export default function Page() {
         }}
       >
         <Group h="100%" px="lg" justify="space-between">
-          <Group gap={12}>
+          <Group gap={14} wrap="nowrap">
+            {/* 브리콘랩 공식 워드마크 (briconlab.com/img/logo.png) */}
+            <Image
+              src="/brand/briconlab-logo.png"
+              alt="BRICON LAB"
+              width={345}
+              height={60}
+              priority
+              style={{ height: 26, width: "auto" }}
+            />
             <Box
-              w={30}
-              h={30}
-              style={{
-                background: "var(--mantine-color-brand-9)",
-                display: "grid",
-                placeItems: "center",
-                clipPath: "polygon(0 0, 100% 0, 100% 72%, 72% 100%, 0 100%)",
-              }}
-            >
-              <Text c="white" fw={700} size="sm" lh={1}>
-                B
-              </Text>
-            </Box>
-            <div>
-              <Text fw={700} size="sm" c="brand.9" lh={1.15} style={{ letterSpacing: "0.02em" }}>
-                BRICON LAB
-              </Text>
-              <span className="microlabel">현장 QA 대시보드</span>
-            </div>
+              style={{ width: 1, height: 22, background: "var(--rule)" }}
+              visibleFrom="xs"
+            />
+            <Text size="sm" c="dimmed" visibleFrom="xs" style={{ letterSpacing: "-0.01em" }}>
+              현장 QA 대시보드
+            </Text>
           </Group>
           <Badge variant="dot" color="teal" size="sm">
             ONLINE
