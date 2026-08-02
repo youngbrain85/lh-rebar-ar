@@ -1,11 +1,13 @@
 @import "tailwindcss";
 
-/* 도면(drafting) 톤: 종이빛 바탕 + 아주 옅은 모눈, 네이비 잉크 */
+/* 브리콘랩 기업 톤: 밝은 회색 바탕(#f4f4f4) + 흰 면 + 네이비(#002961) 잉크.
+   briconlab.com에서 샘플링한 색을 그대로 쓴다. */
 :root {
-  --paper: #f7f6f3;
-  --paper-line: rgba(0, 41, 97, 0.055);
-  --ink: #1b1f27;
-  --rule: rgba(0, 41, 97, 0.12);
+  --paper: #f4f4f4;
+  --paper-line: rgba(0, 41, 97, 0.032);
+  --ink: #333333;
+  --navy: #002961;
+  --rule: rgba(0, 41, 97, 0.14);
 }
 
 html,
@@ -17,11 +19,11 @@ body {
 body {
   color: var(--ink);
   background-color: var(--paper);
-  /* 24px 모눈 — 화면을 도면지처럼 보이게 하는 최소한의 질감 */
+  /* 32px 모눈 — 기업 사이트의 정갈한 인상을 해치지 않을 만큼만 남긴 질감 */
   background-image:
     linear-gradient(var(--paper-line) 1px, transparent 1px),
     linear-gradient(90deg, var(--paper-line) 1px, transparent 1px);
-  background-size: 24px 24px;
+  background-size: 32px 32px;
   background-attachment: fixed;
   font-family: var(--font-sans), system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
