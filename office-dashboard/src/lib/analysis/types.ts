@@ -13,6 +13,19 @@ export interface Rebar {
 }
 
 export type Direction = "horizontal" | "vertical";
+
+/** 방향군 식별자 — "v1"(세로) "h1"(가로) "d1"(사재) 형태. 설계모델에서 자동 추출된다. */
+export type DirectionId = string;
+
+/** 방향군: 대표 축과 표시 이름 */
+export interface DirectionFamily {
+  id: DirectionId;
+  /** "세로" | "가로" | "사재 45°" 등 표시용 */
+  label: string;
+  /** 부호 정규화된 단위 축 */
+  axis: Vec3;
+}
+
 export type Layer = "outer" | "inner";
 export type ClassifiedRebar = Rebar & { direction: Direction; layer: Layer };
 
