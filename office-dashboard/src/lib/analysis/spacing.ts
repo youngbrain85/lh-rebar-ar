@@ -10,6 +10,14 @@ import type { ClassifiedRebar, DirectionFamily, DirectionId, Layer, Vec3 } from 
  */
 const ORDER_MIN_SIN = 0.05;
 
+/**
+ * 이보다 좁은 "간격"은 실재하지 않는다 — 겹침이음처럼 같은 자리에 놓인 두 철근이거나,
+ * 면 밖 방향군의 잔여 성분이다. KDS 최소 순간격이 25mm이므로 실제 중심간격은
+ * 어떤 배근에서도 이 값을 밑돌 수 없다. 세면 컨투어에 가짜 최대편차가 찍히고
+ * 그룹 중앙값까지 끌어내려 요구간격 기본값이 망가진다.
+ */
+const MIN_REAL_SPACING_MM = 20;
+
 export function spacingGroupKey(direction: DirectionId, layer: Layer): string {
   return `${direction}/${layer}`;
 }
@@ -104,6 +112,9 @@ export function computeSpacing(
       // 두 철근에서 긴 쪽의 여분 구간이 짧은 쪽 끝점까지의 거리로 잡혀 간격이
       // 부풀려진다(2m 대 1m, 실제 200mm → 296.6mm).
       const spacingMm = Math.abs(b.t - a.t) * 1000;
+      // 겹침이음·면 밖 잔여 성분은 구간으로 세지 않는다. 이 쌍만 건너뛰므로
+      // 다음 쌍(b ↔ 그 다음 철근)에서 진짜 간격이 이어서 잡힌다.
+      if (spacingMm < MIN_REAL_SPACING_MM) continue;
       raws.push({
         a: a.b, b: b.b, spacingMm,
         midpoint: [

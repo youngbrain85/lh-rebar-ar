@@ -131,6 +131,34 @@ describe("computeSpacing", () => {
     expect(r.gaps.length).toBeGreaterThan(0);
   });
 
+  it("살짝 기운 관통 방향군도 건너뛴다 (임계가 1e-9이 아니라 0.05인 이유)", () => {
+    // 법선에서 약 2° 기운 타이 2본. |cross| ≈ 0.035 < ORDER_MIN_SIN이라 걸러진다.
+    // 임계가 1e-9이면 order가 ±x로 잡혀 두 타이 사이에 200mm짜리 가짜 간격이 생긴다.
+    const t = Math.tan((2 * Math.PI) / 180) * 0.2; // z로 0.2 갈 때 y 변위
+    const tie = (id: string, x: number): Rebar => ({
+      id, radius: 0.008, centerline: [[x, 1, -0.1], [x, 1 + t, 0.1]],
+    });
+    const { bars: c, fams, n } = classified([...wall([0, 0.2, 0.4, 0.6]), tie("t0", 0.1), tie("t1", 0.3)]);
+    const r = computeSpacing(c, fams, n, {});
+    const tieDir = c.find((b) => b.id === "t0")!.direction;
+    expect(tieDir).not.toBe(c.find((b) => b.id === "v0")!.direction); // 별도 방향군
+    expect(r.gaps.some((g) => g.direction === tieDir)).toBe(false);
+  });
+
+  it("겹침이음처럼 같은 자리에 있는 두 철근은 간격으로 세지 않는다", () => {
+    // x=0에서 하부근과 상부근이 겹쳐 이어지고, 이웃 철근이 200mm 떨어져 있다.
+    // 0mm 구간을 세면 중앙값이 100mm로 내려가 요구간격 기본값까지 망가진다
+    const bars: Rebar[] = [
+      { id: "lower", radius: 0.008, centerline: [[0, 0, 0], [0, 2, 0]] },
+      { id: "upper", radius: 0.008, centerline: [[0, 1.8, 0], [0, 3.8, 0]] },
+      { id: "nbr", radius: 0.008, centerline: [[0.2, 0, 0], [0.2, 3.8, 0]] },
+    ];
+    const { bars: c, fams, n } = classified(bars);
+    const r = computeSpacing(c, fams, n, {});
+    expect(r.gaps.map((g) => Math.round(g.spacingMm))).toEqual([200]);
+    expect(r.groups[0].medianMm).toBeCloseTo(200, 3);
+  });
+
   it("중점은 두 철근 사이에 놓인다", () => {
     const { bars, fams, n } = classified(wall([0, 0.2]));
     const r = computeSpacing(bars, fams, n, {});
