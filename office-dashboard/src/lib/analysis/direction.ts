@@ -68,9 +68,12 @@ export function deriveDirectionFamilies(
     }
   }
 
-  // 2) 소수 군 흡수
+  // 2) 소수 군 흡수 — minCount 미만인 군은 결과 목록에서 빼서(개별 철근은 이후
+  // assignFamily가 최근접 군으로 흡수) 나머지 군에 녹아들게 한다. 단, 모든 군이
+  // minCount 미만이면 흡수할 "나머지 군" 자체가 없으므로 하나만 남기지 않고
+  // 전부 보존한다 — 그래야 입력에 있던 모든 방향이 어떤 군으로든 표현된다.
   const keep = clusters.filter((c) => c.count >= minCount);
-  const pool = keep.length > 0 ? keep : clusters.slice(0, 1);
+  const pool = keep.length > 0 ? keep : clusters;
 
   // 3) up과의 각도로 분류하고 이름을 붙인다
   const withAngle = pool.map((c) => ({ ...c, toUp: axisAngleDeg(c.axis, u) }));

@@ -70,6 +70,26 @@ describe("deriveDirectionFamilies", () => {
     const fams = deriveDirectionFamilies(bars, UP);
     expect(fams.length).toBe(1);
   });
+
+  it("모든 군이 minCount 미만이면 하나만 남기지 않고 전부 보존한다", () => {
+    // 세 방향(수직/수평/45도)이 각각 단일 철근뿐이라 어느 군도 minCount(2)에 못 미친다.
+    // 이때 흡수할 "나머지 군"이 아예 없으므로, 입력에 있던 방향이 하나라도 사라지면 안 된다.
+    const bars = [
+      bar("v", [0, 0, 0], [0, 2, 0]),
+      bar("h", [0, 0.5, 0], [1.8, 0.5, 0]),
+      bar("d", [0, 0, 0], [0.7, 0.7, 0]),
+    ];
+    const fams = deriveDirectionFamilies(bars, UP);
+    expect(fams.length).toBe(3);
+    // 개수만이 아니라 각도로 확인 — id가 뒤섞여도 놓치지 못하게, 원래 철근 축으로
+    // assignFamily를 되돌려서 실제로 자기 방향에 가까운 군에 붙는지 검증한다.
+    for (const b of bars) {
+      const axis = barAxis(b);
+      const famId = assignFamily(axis, fams);
+      const fam = fams.find((f) => f.id === famId)!;
+      expect(axisAngleDeg(fam.axis, axis)).toBeLessThan(20);
+    }
+  });
 });
 
 describe("assignFamily", () => {
