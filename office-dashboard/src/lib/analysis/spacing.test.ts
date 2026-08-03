@@ -1,0 +1,97 @@
+import { describe, expect, it } from "vitest";
+import { classifyRebars, estimateWallNormal } from "./classify";
+import { deriveDirectionFamilies } from "./direction";
+import { computeSpacing, spacingGroupKey, suggestRequiredSpacing } from "./spacing";
+import type { Rebar, Vec3 } from "./types";
+
+const UP: Vec3 = [0, 1, 0];
+const bar = (id: string, x: number, z = 0): Rebar => ({
+  id, radius: 0.008, centerline: [[x, 0, z], [x, 2, z]],
+});
+
+/** 세로근만 있는 한 겹 벽 — x가 간격이 된다 */
+function wall(xs: number[]): Rebar[] {
+  return xs.map((x, i) => bar(`v${i}`, x));
+}
+
+function classified(bars: Rebar[]) {
+  const fams = deriveDirectionFamilies(bars, UP);
+  const n = estimateWallNormal(bars);
+  return { bars: classifyRebars(bars, UP, n, fams), fams, n };
+}
+
+describe("computeSpacing", () => {
+  it("등간격 200mm면 편차 0", () => {
+    const { bars, fams, n } = classified(wall([0, 0.2, 0.4, 0.6]));
+    const key = spacingGroupKey(bars[0].direction, bars[0].layer);
+    const r = computeSpacing(bars, fams, n, { [key]: 200 });
+    expect(r.gaps.length).toBe(3);
+    for (const g of r.gaps) {
+      expect(g.spacingMm).toBeCloseTo(200, 3);
+      expect(g.deviationMm).toBeCloseTo(0, 3);
+    }
+  });
+
+  it("벌어진 구간의 편차를 부호까지 잡아낸다", () => {
+    // 간격 200 / 240 / 150 → 편차 0 / +40 / -50. 세 값의 크기가 모두 달라
+    // 구간 순서가 뒤바뀌면 반드시 실패한다
+    const { bars, fams, n } = classified(wall([0, 0.2, 0.44, 0.59]));
+    const key = spacingGroupKey(bars[0].direction, bars[0].layer);
+    const r = computeSpacing(bars, fams, n, { [key]: 200 });
+    const devs = r.gaps.map((g) => Math.round(g.deviationMm));
+    expect(devs).toEqual([0, 40, -50]);
+  });
+
+  it("간격은 위치 순서대로 잰다 (입력 순서와 무관)", () => {
+    const shuffled = [bar("c", 0.4), bar("a", 0), bar("b", 0.2)];
+    const { bars, fams, n } = classified(shuffled);
+    const key = spacingGroupKey(bars[0].direction, bars[0].layer);
+    const r = computeSpacing(bars, fams, n, { [key]: 200 });
+    expect(r.gaps.length).toBe(2);
+    for (const g of r.gaps) expect(g.spacingMm).toBeCloseTo(200, 3);
+  });
+
+  it("그룹이 다르면 간격을 재지 않는다 (세로 vs 가로)", () => {
+    const bars: Rebar[] = [
+      ...wall([0, 0.2, 0.4]),
+      { id: "h0", radius: 0.008, centerline: [[0, 0.5, 0], [1.5, 0.5, 0]] },
+      { id: "h1", radius: 0.008, centerline: [[0, 0.8, 0], [1.5, 0.8, 0]] },
+    ];
+    const { bars: c, fams, n } = classified(bars);
+    const r = computeSpacing(c, fams, n, {});
+    const dirs = new Set(r.gaps.map((g) => g.direction));
+    expect(dirs.size).toBe(2);
+    // 세로 3개 → 2구간, 가로 2개 → 1구간
+    expect(r.gaps.length).toBe(3);
+  });
+
+  it("철근이 1개뿐인 그룹은 구간이 없다", () => {
+    const { bars, fams, n } = classified(wall([0]));
+    const r = computeSpacing(bars, fams, n, {});
+    expect(r.gaps.length).toBe(0);
+  });
+
+  it("요구 간격 미지정이면 그룹 중앙값을 기준으로 삼는다", () => {
+    const { bars, fams, n } = classified(wall([0, 0.2, 0.4, 0.65]));
+    const r = computeSpacing(bars, fams, n, {});
+    // 중앙값 200 → 마지막 구간 250이 +50
+    expect(Math.round(r.gaps[2].deviationMm)).toBe(50);
+  });
+
+  it("중점은 두 철근 사이에 놓인다", () => {
+    const { bars, fams, n } = classified(wall([0, 0.2]));
+    const r = computeSpacing(bars, fams, n, {});
+    expect(r.gaps[0].midpoint[0]).toBeCloseTo(0.1, 6);
+  });
+});
+
+describe("suggestRequiredSpacing", () => {
+  it("중앙값을 5mm 단위로 반올림해 제안한다", () => {
+    const out = suggestRequiredSpacing([
+      { direction: "v1", layer: "outer", medianMm: 203.2, count: 5 },
+      { direction: "h1", layer: "outer", medianMm: 297.6, count: 4 },
+    ]);
+    expect(out["v1/outer"]).toBe(205);
+    expect(out["h1/outer"]).toBe(300);
+  });
+});
