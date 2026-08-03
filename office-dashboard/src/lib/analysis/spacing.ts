@@ -1,7 +1,14 @@
 // 인접 철근 간격 계산 — 같은 (방향군, 레이어) 안에서 벽면을 가로지르는 순서로 줄을 세우고
 // 이웃한 두 철근 사이 거리를 잰다. KDS가 규정하는 것이 간격이므로 이 값이 기본 지표다.
-import { cross, dot, normalize, polylineDistance, samplePolyline } from "./geom";
+import { canonicalAxis } from "./direction";
+import { cross, dot, norm, normalize, samplePolyline } from "./geom";
 import type { ClassifiedRebar, DirectionFamily, DirectionId, Layer, Vec3 } from "./types";
+
+/**
+ * 정렬 축이 성립하는 최소 |cross| (≈ sin 3°). 이보다 작으면 방향군 축이 벽 법선과
+ * 거의 나란하다는 뜻이고, normalize가 노이즈를 면 위 방향으로 증폭시킨다.
+ */
+const ORDER_MIN_SIN = 0.05;
 
 export function spacingGroupKey(direction: DirectionId, layer: Layer): string {
   return `${direction}/${layer}`;
@@ -71,26 +78,39 @@ export function computeSpacing(
   for (const [key, group] of byGroup) {
     if (group.length < 2) { rawByGroup.set(key, []); continue; }
     const famAxis = axisOf.get(group[0].direction) ?? [0, 1, 0];
-    // 철근 방향과 벽면 법선에 모두 수직인 축 = 철근들이 늘어선 방향
-    let order = cross(famAxis, n);
-    if (Math.hypot(order[0], order[1], order[2]) < 1e-9) order = [1, 0, 0];
-    order = normalize(order);
+    // 철근 방향과 벽면 법선에 모두 수직인 축 = 철근들이 면 위에 늘어선 방향.
+    // 방향군 축이 벽 법선과 거의 나란하면(벽을 관통하는 타이·연결철근) 이 축이
+    // 노이즈로 정해져 임의의 순서가 나온다. 그런 군은 면 위 간격이 정의되지 않으므로
+    // 지어내지 말고 건너뛴다.
+    const rawOrder = cross(famAxis, n);
+    if (norm(rawOrder) < ORDER_MIN_SIN) { rawByGroup.set(key, []); continue; }
+    // 부호 정규화: cross의 부호는 wallNormal(PCA 고유벡터)의 부호를 물려받는데
+    // 고유벡터 부호는 규약이 없다. 정규화하지 않으면 gaps 배열 순서가 뒤집힌다.
+    const order = canonicalAxis(normalize(rawOrder));
 
     const sorted = [...group]
-      .map((b) => ({ b, t: dot(midpointOf(b), order) }))
-      .sort((x, y) => x.t - y.t)
-      .map((x) => x.b);
+      .map((b) => {
+        const mid = midpointOf(b);
+        return { b, mid, t: dot(mid, order) };
+      })
+      .sort((x, y) => x.t - y.t);
 
     const raws: Raw[] = [];
     for (let i = 0; i + 1 < sorted.length; i++) {
       const a = sorted[i];
       const b = sorted[i + 1];
-      const spacingMm = polylineDistance(a.centerline, b.centerline).mean * 1000;
-      const ma = midpointOf(a);
-      const mb = midpointOf(b);
+      // 간격 = 정렬 축 위의 거리. 검측자가 면을 가로질러 실제로 재는 값이다.
+      // polylineDistance(...).mean을 쓰면 안 된다 — 길이가 다르거나 이음이 엇갈린
+      // 두 철근에서 긴 쪽의 여분 구간이 짧은 쪽 끝점까지의 거리로 잡혀 간격이
+      // 부풀려진다(2m 대 1m, 실제 200mm → 296.6mm).
+      const spacingMm = Math.abs(b.t - a.t) * 1000;
       raws.push({
-        a, b, spacingMm,
-        midpoint: [(ma[0] + mb[0]) / 2, (ma[1] + mb[1]) / 2, (ma[2] + mb[2]) / 2],
+        a: a.b, b: b.b, spacingMm,
+        midpoint: [
+          (a.mid[0] + b.mid[0]) / 2,
+          (a.mid[1] + b.mid[1]) / 2,
+          (a.mid[2] + b.mid[2]) / 2,
+        ],
       });
     }
     rawByGroup.set(key, raws);
