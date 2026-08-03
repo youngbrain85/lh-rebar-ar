@@ -43,9 +43,14 @@ export function assignLabels(
   const withPos = records.map((rec) => ({ rec, pos: perpPos(rec) }));
   withPos.sort((a, b) => {
     if (a.rec.direction !== b.rec.direction) {
-      const ai = familyIndex.get(a.rec.direction) ?? Infinity;
-      const bi = familyIndex.get(b.rec.direction) ?? Infinity;
-      return ai - bi;
+      // families에 없는 미지의 방향은 유한한 sentinel로 맨 뒤로 보낸다 — 둘 다
+      // Infinity였다면 Infinity - Infinity = NaN이 돼 두 미지 방향이 "같다"고
+      // 취급되면서(NaN은 비교자에서 +0처럼 동작) 그룹 뭉침 불변식이 깨질 수 있었다
+      const ai = familyIndex.get(a.rec.direction) ?? families.length;
+      const bi = familyIndex.get(b.rec.direction) ?? families.length;
+      if (ai !== bi) return ai - bi;
+      // 둘 다 미지 방향이라 순위가 같으면, id 문자열로 전체 순서를 마저 정한다
+      return a.rec.direction < b.rec.direction ? -1 : 1;
     }
     if (a.rec.layer !== b.rec.layer) return a.rec.layer === "outer" ? -1 : 1;
     return cmp(a.pos[0], b.pos[0]) || cmp(a.pos[2], b.pos[2]) || cmp(a.pos[1], b.pos[1]);

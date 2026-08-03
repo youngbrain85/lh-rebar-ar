@@ -39,20 +39,25 @@ export function makeWallGrid(opts: Partial<GridOpts> = {}): Rebar[] {
 
 /**
  * makeWallGrid에 45° 사재군(세 번째 방향군)을 더한 벽체 — 방향군이 2개(세로/가로)로
- * 고정돼 있지 않은 엔진 레벨 단위 테스트용. 사재는 레이어별로 서로 평행하게 나란히
- * 놓여 있어(정확히 45°) 정렬 결정성 테스트에도 쓴다. Task 8의 makeHaunchWall과는
- * 별개 — 이쪽은 direction/classify/judge/label 엔진 단위 테스트, 그쪽은 전체
- * 파이프라인 헌치 검증용이다.
+ * 고정돼 있지 않은 엔진 레벨 단위 테스트용. Task 8의 makeHaunchWall과는 별개 — 이쪽은
+ * direction/classify/judge/label 엔진 단위 테스트, 그쪽은 전체 파이프라인 헌치 검증용이다.
+ *
+ * 사재 축은 (1,1,0)/√2(정확히 45°) — 세 개가 축과 나란히, 축에 "수직"인 방향
+ * (1,-1,0)으로 서로 0.15m씩 떨어져 있다. 즉 서로 평행한 개별 철근이며, 축을 따라
+ * 한 줄로 이어 그린 게 아니다(그렇게 그리면 y=x 위에서 mid[0]===mid[1]이 되어,
+ * "축에 수직한 성분으로 정렬"하는지 "세계 x/y 중 하나로 정렬"하는지를 구별하는
+ * 테스트가 무력화된다). 이 배치라면 x로 정렬한 순서와 y로 정렬한 순서가 서로
+ * 반대가 되므로, 정렬 축 선택 버그가 있으면 반드시 순서가 뒤집혀 드러난다.
  */
 export function makeDiagonalFamilyGrid(opts: Partial<GridOpts> = {}): Rebar[] {
   const o = { ...DEFAULTS, ...opts };
   const out = makeWallGrid(opts);
   for (const [layer, z] of [["outer", 0], ["inner", -o.layerGap]] as const) {
     for (let i = 0; i < 3; i++) {
-      const off = i * 0.15;
+      const sx = i * 0.15, sy = -i * 0.15; // 축에 수직 방향(1,-1,0)으로 나란히 오프셋
       out.push({
         id: `d-d-${layer}-${i}`, radius: o.radius,
-        centerline: [[off, off, z], [off + 0.175, off + 0.175, z], [off + 0.35, off + 0.35, z]],
+        centerline: [[sx, sy, z], [sx + 0.175, sy + 0.175, z], [sx + 0.35, sy + 0.35, z]],
       });
     }
   }

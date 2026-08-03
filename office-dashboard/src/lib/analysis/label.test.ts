@@ -35,9 +35,9 @@ describe("assignLabels", () => {
   });
 
   it("returns records sorted by group then number (groups stay contiguous)", () => {
-    // 정렬 키가 방향군 id 사전순으로 바뀌어 "세로가 항상 먼저"는 더 이상 보장되지 않는다
-    // (방향군 개수가 2개로 고정되지 않으므로) — 대신 같은 그룹의 레코드가 끊기지 않고
-    // 뭉쳐 있어야 한다는 불변식만 확인한다.
+    // 정렬 키가 방향군 id 사전순에서 families 배열 순서(각도 기준, 세로→사재→가로)로
+    // 바뀌었다 — 이 테스트는 그 구체적인 순서 자체가 아니라, 같은 그룹의 레코드가
+    // 끊기지 않고 뭉쳐 있어야 한다는(어떤 순서든) 더 약한 불변식만 확인한다.
     const keys = labeled.map((r) => `${r.direction}/${r.layer}`);
     const seenGroups = new Set<string>();
     let prevKey: string | null = null;
@@ -86,25 +86,47 @@ describe("direction families beyond vertical/horizontal", () => {
     expect(diagLabeled.every((r) => /^사재.*-(내|외)측-\d+$/.test(r.label ?? ""))).toBe(true);
   });
 
-  it("numbers a 45° diagonal group deterministically regardless of input bar order", () => {
-    // barAxis가 정확히 45°인 사재군은 옛 구현(세계축 x/y 중 하나를 고정으로 고르는 분기)에서
-    // 부동소수 노이즈로 정렬 방향이 뒤집힐 수 있었다 — 입력 순서를 바꿔도 라벨 순서가
-    // 그대로인지로 그 회귀를 잡는다.
-    const labelSequence = (grid: ReturnType<typeof makeDiagonalFamilyGrid>) => {
+  it("orders a 45° diagonal group by its true geometric position, not a coin-flipped world axis", () => {
+    // barAxis가 정확히 45°인 사재군에서 옛 구현(세계축 x/y 중 하나를 고정으로 고르는 분기,
+    // Math.abs(ax[1]) > Math.SQRT1_2)은 이 픽스처에서 실측 ax[1] = 0.7071067811865475가
+    // Math.SQRT1_2 = 0.7071067811865476보다 1ULP 작아 "false" 분기(y축)를 골라
+    // d-d-outer-0/1/2의 번호가 뒤집힌다(2,1,0 순).
+    //
+    // 이 코인플립은 "고정된" 결정이다 — 사재 6개(외측3+내측3)가 전부 동일한 방향 벡터라
+    // deriveDirectionFamilies의 군집 평균(불변 벡터를 반복해서 더하는 것뿐이라 덧셈
+    // 순서가 결과에 영향을 줄 수 없음)도, 이후 동률 없는 키로 정렬하는 것도 입력 배열
+    // 순서와 무관하다 — 그래서 "입력을 뒤집으면 결과가 달라지는지"만으로는 이 버그를 잡을
+    // 수 없다(실측: 뒤집어도 항상 outer-2가 1번을 받아 GREEN으로 보인다). 대신 의도한
+    // 절대 순서(사재 축에 수직인 오프셋이 커지는 방향, 즉 i=0,1,2 순)를 직접 못박아 둔다 —
+    // 그리고 입력 순서를 바꿔도 이 절대 순서가 흔들리지 않는지도 함께 확인한다.
+    const EXPECTED: Record<string, string> = {
+      "d-d-outer-0": "사재 45°-외측-1",
+      "d-d-outer-1": "사재 45°-외측-2",
+      "d-d-outer-2": "사재 45°-외측-3",
+      "d-d-inner-0": "사재 45°-내측-1",
+      "d-d-inner-1": "사재 45°-내측-2",
+      "d-d-inner-2": "사재 45°-내측-3",
+    };
+
+    const diagLabelsByDesignId = (grid: ReturnType<typeof makeDiagonalFamilyGrid>) => {
       const f = deriveDirectionFamilies(grid, UP);
       const d = classifyRebars(grid, UP, estimateWallNormal(grid), f);
       const s = classifyRebars(grid, UP, estimateWallNormal(grid), f);
       const { rebars } = judge(d, s, matchRebars(d, s), 10);
       const labeled = assignLabels(rebars, d, s, f);
-      return labeled.filter((r) => r.directionLabel?.startsWith("사재")).map((r) => r.label);
+      const map: Record<string, string> = {};
+      for (const r of labeled) {
+        if (r.directionLabel?.startsWith("사재") && r.designId != null) {
+          map[r.designId] = r.label ?? "";
+        }
+      }
+      return map;
     };
 
     const forward = makeDiagonalFamilyGrid();
     const reversed = [...forward].reverse();
 
-    const seqForward = labelSequence(forward);
-    const seqReversed = labelSequence(reversed);
-    expect(seqForward.length).toBeGreaterThan(0);
-    expect(seqReversed).toEqual(seqForward);
+    expect(diagLabelsByDesignId(forward)).toEqual(EXPECTED);
+    expect(diagLabelsByDesignId(reversed)).toEqual(EXPECTED);
   });
 });
