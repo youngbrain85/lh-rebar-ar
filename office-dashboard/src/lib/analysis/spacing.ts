@@ -5,18 +5,30 @@ import { cross, dot, norm, normalize, samplePolyline } from "./geom";
 import type { ClassifiedRebar, DirectionFamily, DirectionId, Layer, Vec3 } from "./types";
 
 /**
- * 정렬 축이 성립하는 최소 |cross| (≈ sin 3°). 이보다 작으면 방향군 축이 벽 법선과
- * 거의 나란하다는 뜻이고, normalize가 노이즈를 면 위 방향으로 증폭시킨다.
+ * 방향군이 "벽면 안에 있는가"를 가르는 값 = sin 30°.
+ *
+ * 판정 대상은 수치 노이즈가 아니라 **기하**다. 면 위 철근군은 법선과 90°를 이루므로
+ * |cross| ≈ 1이고(벽 법선 추정이 몇 도 기울어도 0.99 아래로 내려가지 않는다),
+ * 벽을 관통하는 타이·연결철근은 0~15°라 0.26을 넘지 못한다. 그 사이 어디에 그어도
+ * 되므로 30°로 넉넉히 잡는다.
+ *
+ * 이 값을 노이즈 기준(3° 등)으로 잡으면 안 된다: 스캔 노이즈만으로도 실제 타이가
+ * 3~15° 범위에 들어오고, 그러면 같은 타이가 **기운 방향에 따라** 다른 값을 낸다 —
+ * x–z로 기울면 정렬축이 ±y라 0mm, y–z로 기울면 ±x라 200mm짜리 가짜 간격.
  */
-const ORDER_MIN_SIN = 0.05;
+const ORDER_MIN_SIN = 0.5;
 
 /**
- * 이보다 좁은 "간격"은 실재하지 않는다 — 겹침이음처럼 같은 자리에 놓인 두 철근이거나,
- * 면 밖 방향군의 잔여 성분이다. KDS 최소 순간격이 25mm이므로 실제 중심간격은
- * 어떤 배근에서도 이 값을 밑돌 수 없다. 세면 컨투어에 가짜 최대편차가 찍히고
- * 그룹 중앙값까지 끌어내려 요구간격 기본값이 망가진다.
+ * 두 철근의 **순간격**(중심거리 − 반지름 합)이 이 값 미만이면 간격이 아니다 —
+ * 겹침·접촉 이음이거나 면 밖 방향군의 잔여 성분이다. KDS 최소 순간격이 25mm이므로
+ * 실제 이웃 철근은 어떤 배근에서도 이보다 좁을 수 없다.
+ *
+ * 중심거리에 고정 하한을 두면 안 된다: 접촉이음의 중심거리는 곧 철근 지름이라
+ * D22 이상이면 22·25·29mm로 20mm 하한을 통과해버린다. 순간격으로 재면 지름과
+ * 무관하게 걸린다. 세면 컨투어에 가짜 최대편차가 찍히고 그룹 중앙값까지 끌어내려
+ * 요구간격 기본값이 망가진다.
  */
-const MIN_REAL_SPACING_MM = 20;
+const MIN_CLEAR_MM = 20;
 
 export function spacingGroupKey(direction: DirectionId, layer: Layer): string {
   return `${direction}/${layer}`;
@@ -112,9 +124,10 @@ export function computeSpacing(
       // 두 철근에서 긴 쪽의 여분 구간이 짧은 쪽 끝점까지의 거리로 잡혀 간격이
       // 부풀려진다(2m 대 1m, 실제 200mm → 296.6mm).
       const spacingMm = Math.abs(b.t - a.t) * 1000;
-      // 겹침이음·면 밖 잔여 성분은 구간으로 세지 않는다. 이 쌍만 건너뛰므로
+      // 겹침·접촉 이음과 면 밖 잔여 성분은 구간으로 세지 않는다. 이 쌍만 건너뛰므로
       // 다음 쌍(b ↔ 그 다음 철근)에서 진짜 간격이 이어서 잡힌다.
-      if (spacingMm < MIN_REAL_SPACING_MM) continue;
+      const clearMm = spacingMm - (a.b.radius + b.b.radius) * 1000;
+      if (clearMm < MIN_CLEAR_MM) continue;
       raws.push({
         a: a.b, b: b.b, spacingMm,
         midpoint: [

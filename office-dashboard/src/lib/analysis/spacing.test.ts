@@ -145,6 +145,41 @@ describe("computeSpacing", () => {
     expect(r.gaps.some((g) => g.direction === tieDir)).toBe(false);
   });
 
+  it("10° 기울어도, 기운 방향에 상관없이 관통 방향군은 건너뛴다", () => {
+    // |cross| = sin10° ≈ 0.174 < ORDER_MIN_SIN(0.5). 임계가 0.05(≈3°)였을 때는
+    // 이 군이 통과해서, 같은 타이가 기운 방향에 따라 다른 값을 냈다 —
+    // x–z로 기울면 정렬축이 ±y라 0mm, y–z로 기울면 ±x라 200mm짜리 가짜 간격.
+    const d = 0.2 * Math.tan((10 * Math.PI) / 180);
+    const cases: [string, (x: number) => Vec3[]][] = [
+      ["x-z", (x) => [[x, 1, -0.1], [x + d, 1, 0.1]]],
+      ["y-z", (x) => [[x, 1, -0.1], [x, 1 + d, 0.1]]],
+    ];
+    for (const [name, line] of cases) {
+      const tie = (id: string, x: number): Rebar => ({ id, radius: 0.008, centerline: line(x) });
+      const { bars: c, fams, n } = classified([
+        ...wall([0, 0.2, 0.4, 0.6]), tie("t0", 0.1), tie("t1", 0.3),
+      ]);
+      const r = computeSpacing(c, fams, n, {});
+      const tieDir = c.find((b) => b.id === "t0")!.direction;
+      expect(r.gaps.some((g) => g.direction === tieDir), name).toBe(false);
+      expect(r.gaps.length, name).toBeGreaterThan(0); // 벽면 철근은 그대로 측정된다
+    }
+  });
+
+  it("접촉이음(철근이 맞닿은 이음)도 간격으로 세지 않는다", () => {
+    // D25(반지름 12.5mm) 두 본이 맞닿으면 중심거리가 곧 지름 25mm — 중심거리에
+    // 20mm 고정 하한을 두면 통과해버린다. 순간격(25-25=0)으로 재야 걸린다.
+    const R = 0.0125;
+    const bars: Rebar[] = [
+      { id: "lower", radius: R, centerline: [[0, 0, 0], [0, 2, 0]] },
+      { id: "upper", radius: R, centerline: [[0.025, 1.8, 0], [0.025, 3.8, 0]] },
+      { id: "nbr", radius: R, centerline: [[0.225, 0, 0], [0.225, 3.8, 0]] },
+    ];
+    const { bars: c, fams, n } = classified(bars);
+    const r = computeSpacing(c, fams, n, {});
+    expect(r.gaps.map((g) => Math.round(g.spacingMm))).toEqual([200]);
+  });
+
   it("겹침이음처럼 같은 자리에 있는 두 철근은 간격으로 세지 않는다", () => {
     // x=0에서 하부근과 상부근이 겹쳐 이어지고, 이웃 철근이 200mm 떨어져 있다.
     // 0mm 구간을 세면 중앙값이 100mm로 내려가 요구간격 기본값까지 망가진다
