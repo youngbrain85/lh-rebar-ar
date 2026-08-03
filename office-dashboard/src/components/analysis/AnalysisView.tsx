@@ -10,6 +10,7 @@ import {
 } from "@mantine/core";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type * as THREE from "three";
+import { deriveDirectionFamilies } from "../../lib/analysis/direction";
 import { rejudgeRecords } from "../../lib/analysis/judge";
 import { assignLabels } from "../../lib/analysis/label";
 import type { AnalysisOutput } from "../../lib/analysis/pipeline";
@@ -123,8 +124,10 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
           design: designRebars, scan: scanRebars,
           toleranceMm: tolerance, up: [0, 1, 0], manualInit,
         });
-        // 표시용 간략명 부여 (수직-내측-1 …) — 저장 결과에도 포함되도록 출력을 교체
-        out.rebars = assignLabels(out.rebars, out.designClassified, out.scanTransformed);
+        // 표시용 간략명 부여 (세로-내측-1 …) — 저장 결과에도 포함되도록 출력을 교체.
+        // 방향군은 파이프라인과 같은 기준(설계모델 + up)으로 다시 뽑는다 — 정식 배선은 Task 5.
+        const families = deriveDirectionFamilies(designRebars, [0, 1, 0]);
+        out.rebars = assignLabels(out.rebars, out.designClassified, out.scanTransformed, families);
         setOutput(out);
         setSavedRecords(null);
         if (!out.registration.failed) {
@@ -335,7 +338,8 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
                           {/* 표시는 간략명, 원본 요소명은 툴팁으로 */}
                           <Table.Td title={key}>{r.label ?? key}</Table.Td>
                           <Table.Td>
-                            {r.direction === "vertical" ? "수직" : "수평"}·
+                            {/* 방향군 표시 이름 — 없으면(예: 마이그레이션 전 저장본) id를 그대로 보여준다 */}
+                            {r.directionLabel ?? r.direction}·
                             {r.layer === "outer" ? "외측" : "내측"}
                           </Table.Td>
                           <Table.Td ta="right" ff="monospace">

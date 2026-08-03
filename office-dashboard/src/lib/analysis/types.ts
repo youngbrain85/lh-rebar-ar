@@ -12,8 +12,6 @@ export interface Rebar {
   radius: number;
 }
 
-export type Direction = "horizontal" | "vertical";
-
 /** 방향군 식별자 — "v1"(세로) "h1"(가로) "d1"(사재) 형태. 설계모델에서 자동 추출된다. */
 export type DirectionId = string;
 
@@ -27,7 +25,7 @@ export interface DirectionFamily {
 }
 
 export type Layer = "outer" | "inner";
-export type ClassifiedRebar = Rebar & { direction: Direction; layer: Layer };
+export type ClassifiedRebar = Rebar & { direction: DirectionId; layer: Layer };
 
 export interface RegistrationResult {
   matrix: Mat4;
@@ -53,16 +51,19 @@ export type Verdict = "pass" | "out_of_tolerance" | "missing" | "extra";
 export interface RebarRecord {
   designId: string | null; // null = 도면 외
   scanId: string | null;   // null = 미시공
-  direction: Direction;
+  direction: DirectionId;
+  /** 표시용 방향군 이름 ("세로" / "사재 45°") */
+  directionLabel?: string;
   layer: Layer;
   deviationMm: { mean: number; max: number } | null;
   verdict: Verdict;
-  /** 표시용 간략명 (예: "수직-내측-1") — assignLabels가 부여, 저장 결과에도 포함 */
+  /** 표시용 간략명 (예: "세로-내측-1") */
   label?: string;
 }
 
 export interface GroupSummary {
-  direction: Direction;
+  direction: DirectionId;
+  directionLabel: string;
   layer: Layer;
   designCount: number;
   scanCount: number;

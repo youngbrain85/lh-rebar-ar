@@ -1,19 +1,22 @@
 import { describe, expect, it } from "vitest";
 import { classifyRebars, estimateWallNormal } from "./classify";
+import { deriveDirectionFamilies } from "./direction";
 import { groupCutoffM, matchRebars } from "./match";
 import { jitterRebars, makeWallGrid, offsetRebar } from "./testFixtures";
 import type { ClassifiedRebar } from "./types";
 
 const UP: [number, number, number] = [0, 1, 0];
+const fams = deriveDirectionFamilies(makeWallGrid(), UP);
 
 function classified(rebars = makeWallGrid()): ClassifiedRebar[] {
-  return classifyRebars(rebars, UP, estimateWallNormal(rebars));
+  return classifyRebars(rebars, UP, estimateWallNormal(rebars), fams);
 }
 
 describe("groupCutoffM", () => {
   it("vertical-outer cutoff = spacing/2 = 0.15m", () => {
     const d = classified();
-    const idx = d.map((r, i) => (r.direction === "vertical" && r.layer === "outer" ? i : -1)).filter((i) => i >= 0);
+    const vId = fams.find((f) => f.label === "세로")!.id;
+    const idx = d.map((r, i) => (r.direction === vId && r.layer === "outer" ? i : -1)).filter((i) => i >= 0);
     expect(groupCutoffM(d, idx)).toBeCloseTo(0.15, 3);
   });
   it("fewer than 2 design bars → 0.1m fallback", () => {
