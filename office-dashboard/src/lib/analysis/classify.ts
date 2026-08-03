@@ -17,6 +17,7 @@ export function classifyRebars(
   families: DirectionFamily[],
 ): ClassifiedRebar[] {
   const n = normalize(wallNormal);
+  const familyLabel = new Map(families.map((f) => [f.id, f.label]));
 
   // 1D 투영값으로 2-means
   const proj = rebars.map((r) => {
@@ -43,11 +44,14 @@ export function classifyRebars(
 
   return rebars.map((r, i) => {
     const direction = assignFamily(barAxis(r), families);
+    // 분류 시점에 라벨을 같이 붙여둔다 — judge.ts가 요약을 만들 때는 families에 접근할
+    // 수 없으므로, 여기서 확정해 둔 라벨을 RebarRecord까지 그대로 흘려보낸다
+    const directionLabel = familyLabel.get(direction) ?? direction;
     const layer = singleLayer
       ? "outer"
       : Math.abs(proj[i] - outerCenter) <= Math.abs(proj[i] - Math.min(c0, c1))
         ? "outer"
         : "inner";
-    return { ...r, direction, layer };
+    return { ...r, direction, directionLabel, layer };
   });
 }

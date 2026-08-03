@@ -4,7 +4,7 @@ import { deriveDirectionFamilies } from "./direction";
 import { judge } from "./judge";
 import { assignLabels } from "./label";
 import { matchRebars } from "./match";
-import { makeWallGrid } from "./testFixtures";
+import { makeDiagonalFamilyGrid, makeWallGrid } from "./testFixtures";
 import type { ClassifiedRebar } from "./types";
 
 const UP: [number, number, number] = [0, 1, 0];
@@ -53,5 +53,58 @@ describe("assignLabels", () => {
   it("rejudge-style spread preserves labels", () => {
     const copy = labeled.map((r) => ({ ...r }));
     expect(copy.every((r, i) => r.label === labeled[i].label)).toBe(true);
+  });
+});
+
+// 방향군이 세로/가로 둘로 고정돼 있지 않다는 것 자체를 검증하는 엔진 레벨 통합 테스트.
+// classify → match → judge → label을 전부 거쳐야 byGroup·라벨이 실제로 3군을 반영하는지
+// 확인할 수 있다 — 개별 모듈 단위 테스트만으로는 "하드코딩된 2군 루프를 그대로 둬도
+// 통과하는" 회귀를 못 잡는다.
+describe("direction families beyond vertical/horizontal", () => {
+  it("byGroup and labels cover every derived family, not just horizontal/vertical", () => {
+    const grid = makeDiagonalFamilyGrid();
+    const f = deriveDirectionFamilies(grid, UP);
+    const d = classifyRebars(grid, UP, estimateWallNormal(grid), f);
+    const s = classifyRebars(grid, UP, estimateWallNormal(grid), f);
+    const { rebars, summary } = judge(d, s, matchRebars(d, s), 10);
+
+    expect(summary.byGroup.length).toBe(6); // 세로/가로/사재 3방향군 × 외측/내측 2레이어
+
+    const diagFam = f.find((fam) => fam.label.startsWith("사재"))!;
+    const vFam = f.find((fam) => fam.label === "세로")!;
+    const hFam = f.find((fam) => fam.label === "가로")!;
+    expect(diagFam.id).not.toBe(vFam.id);
+    expect(diagFam.id).not.toBe(hFam.id);
+
+    const diagGroups = summary.byGroup.filter((g) => g.direction === diagFam.id);
+    expect(diagGroups.length).toBe(2); // 외측 + 내측
+    expect(diagGroups.every((g) => g.directionLabel.startsWith("사재"))).toBe(true);
+
+    const labeled = assignLabels(rebars, d, s, f);
+    const diagLabeled = labeled.filter((r) => r.direction === diagFam.id);
+    expect(diagLabeled.length).toBeGreaterThan(0);
+    expect(diagLabeled.every((r) => /^사재.*-(내|외)측-\d+$/.test(r.label ?? ""))).toBe(true);
+  });
+
+  it("numbers a 45° diagonal group deterministically regardless of input bar order", () => {
+    // barAxis가 정확히 45°인 사재군은 옛 구현(세계축 x/y 중 하나를 고정으로 고르는 분기)에서
+    // 부동소수 노이즈로 정렬 방향이 뒤집힐 수 있었다 — 입력 순서를 바꿔도 라벨 순서가
+    // 그대로인지로 그 회귀를 잡는다.
+    const labelSequence = (grid: ReturnType<typeof makeDiagonalFamilyGrid>) => {
+      const f = deriveDirectionFamilies(grid, UP);
+      const d = classifyRebars(grid, UP, estimateWallNormal(grid), f);
+      const s = classifyRebars(grid, UP, estimateWallNormal(grid), f);
+      const { rebars } = judge(d, s, matchRebars(d, s), 10);
+      const labeled = assignLabels(rebars, d, s, f);
+      return labeled.filter((r) => r.directionLabel?.startsWith("사재")).map((r) => r.label);
+    };
+
+    const forward = makeDiagonalFamilyGrid();
+    const reversed = [...forward].reverse();
+
+    const seqForward = labelSequence(forward);
+    const seqReversed = labelSequence(reversed);
+    expect(seqForward.length).toBeGreaterThan(0);
+    expect(seqReversed).toEqual(seqForward);
   });
 });

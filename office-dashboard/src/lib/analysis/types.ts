@@ -25,7 +25,12 @@ export interface DirectionFamily {
 }
 
 export type Layer = "outer" | "inner";
-export type ClassifiedRebar = Rebar & { direction: DirectionId; layer: Layer };
+export type ClassifiedRebar = Rebar & {
+  direction: DirectionId;
+  /** 표시용 방향군 이름 — classifyRebars가 분류 시점의 families로부터 부여한다 */
+  directionLabel: string;
+  layer: Layer;
+};
 
 export interface RegistrationResult {
   matrix: Mat4;

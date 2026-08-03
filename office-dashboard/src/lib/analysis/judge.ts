@@ -12,7 +12,7 @@ export function buildRecords(
     const d = design[p.designIdx];
     records.push({
       designId: d.id, scanId: scan[p.scanIdx].id,
-      direction: d.direction, layer: d.layer,
+      direction: d.direction, directionLabel: d.directionLabel, layer: d.layer,
       deviationMm: { mean: p.meanMm, max: p.maxMm },
       verdict: "pass",
     });
@@ -20,14 +20,16 @@ export function buildRecords(
   for (const i of match.missingDesign) {
     const d = design[i];
     records.push({
-      designId: d.id, scanId: null, direction: d.direction, layer: d.layer,
+      designId: d.id, scanId: null,
+      direction: d.direction, directionLabel: d.directionLabel, layer: d.layer,
       deviationMm: null, verdict: "missing",
     });
   }
   for (const i of match.extraScan) {
     const s = scan[i];
     records.push({
-      designId: null, scanId: s.id, direction: s.direction, layer: s.layer,
+      designId: null, scanId: s.id,
+      direction: s.direction, directionLabel: s.directionLabel, layer: s.layer,
       deviationMm: null, verdict: "extra",
     });
   }
