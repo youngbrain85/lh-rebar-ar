@@ -153,12 +153,16 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
         out.rebars = assignLabels(out.rebars, out.designClassified, out.scanTransformed, out.families);
         setOutput(out);
         setSavedRecords(null);
-        // 편차 지도 칩은 기본 체크 상태로 렌더되므로, 사용자가 직접 눌러야만 발동하는
-        // onChange 가드로는 "분석 실행 → 지도가 뜨는" 기본 경로에서 한 번도 실행되지
-        // 않는다. 설계 고스트가 지도를 덮는 걸 막으려면 분석 성공 시점에도 같은 규칙을
-        // 적용해야 한다. 칩의 onChange는 그대로 둬 사용자가 다시 켤 수 있게 한다.
-        if (showContour) setShowDesign(false);
         if (!out.registration.failed) {
+          // 편차 지도 칩은 기본 체크 상태로 렌더되므로, 사용자가 직접 눌러야만 발동하는
+          // onChange 가드로는 "분석 실행 → 지도가 뜨는" 기본 경로에서 한 번도 실행되지
+          // 않는다. 설계 고스트가 지도를 덮는 걸 막으려면 분석 성공 시점에도 같은 규칙을
+          // 적용해야 한다. 칩의 onChange는 그대로 둬 사용자가 다시 켤 수 있게 한다.
+          // ★ 반드시 registration.failed 분기 안에서만 실행할 것 — 정합 실패 시엔 지도가
+          // 아예 뜨지 않는데(칩도 렌더 안 됨) 여기서 고스트까지 꺼버리면, "자동 정합 실패"
+          // 경고가 X/Y/Z/요 수동 입력을 요구하는 바로 그 순간 참조할 설계 형상이 화면에서
+          // 사라진다.
+          if (showContour) setShowDesign(false);
           // 그룹 실측 중앙값으로 기본값을 제안하되, 사용자가 이미 입력해 둔 값은 덮지 않는다
           const suggested = suggestRequiredSpacing(out.spacing.groups);
           const merged = { ...suggested, ...requiredSpacing };
@@ -444,7 +448,7 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
 
             <Box>
               <Text size="xs" fw={600} mb={2}>
-                컨투어 상한 {contourMax}mm — 이 값 이상은 모두 최상위 색
+                컨투어 상한 {contourMax}mm — 최상위 색은 상한의 80%부터, 초과분도 모두 포함
               </Text>
               <Slider min={5} max={200} step={5} value={contourMax} onChange={setContourMax}
                 marks={[{ value: 30 }, { value: 50 }, { value: 100 }]} size="sm" />

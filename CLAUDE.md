@@ -260,7 +260,7 @@ axis, 2nd ↔ 2nd), not by chirality. When a wall's two in-plane extents are wit
 (common for roughly square panels), the eigenvector ordering sits near a swap boundary — a single
 extra or missing rebar in the scan can flip which eigenvector comes first, sending the initial guess
 90° off into a stable-but-wrong ICP basin. Degradation is graceful, not silent: the trimmed-RMS gate
-(fails registration above 30mm, see `registerAndRefine`) catches the bad basin, so the user sees
+(fails registration above 30mm, see `registerScan`) catches the bad basin, so the user sees
 "자동 정합 실패" and the manual initial-transform controls (X/Y/Z + yaw nudge, `AnalysisView.tsx`)
 rather than a wrong answer being presented as good. Proper fix is pairing eigenvectors by chirality
 instead of position — a change to the registration core, deliberately out of scope for the

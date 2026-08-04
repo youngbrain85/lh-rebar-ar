@@ -9,7 +9,7 @@ export const CONTOUR_COLORS = ["#2c7bb6", "#abd9e9", "#ffffbf", "#fdae61", "#d71
 /** 지표별 기본 상한 (mm) */
 export const DEFAULT_CONTOUR_MAX = { spacing: 50, position: 30 } as const;
 
-/** 0~상한을 5등분한 단계 인덱스 (0~4). 상한 이상은 4 */
+/** 0~상한을 5등분한 단계 인덱스 (0~4). 마지막 단계(4)는 상한×0.8부터이며 상한 초과도 포함한다 */
 export function contourBand(absMm: number, maxMm: number): number {
   if (!(maxMm > 0)) return CONTOUR_COLORS.length - 1;
   // NaN 편차로는 단계를 고를 수 없다. 막지 않으면 Math.floor(NaN)이 클램프를 통과해
