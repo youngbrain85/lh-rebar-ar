@@ -97,3 +97,30 @@ export function offsetRebar(rebars: Rebar[], id: string, offset: Vec3): Rebar[] 
     },
   );
 }
+
+/**
+ * 헌치가 있는 경사 옹벽 — 발주처 Mock-up 모사.
+ *  · 주철근: 약 8° 기운 세로근 6본 (벽이 위로 갈수록 얇아진다)
+ *  · 배력근: 수평근 4본
+ *  · 헌치 사재: 저판부 45° 대각근 3본
+ */
+export function makeHaunchWall(): Rebar[] {
+  const bars: Rebar[] = [];
+  const r = 0.008;
+  // 경사 주철근 (아래 x → 위 x+0.28, 높이 2m ⇒ 약 8°)
+  for (let i = 0; i < 6; i++) {
+    const x = i * 0.2;
+    bars.push({ id: `main-${i}`, radius: r, centerline: [[x, 0.4, 0], [x + 0.28, 2.4, 0]] });
+  }
+  // 수평 배력근
+  for (let i = 0; i < 4; i++) {
+    const y = 0.6 + i * 0.5;
+    bars.push({ id: `horz-${i}`, radius: r, centerline: [[0, y, 0], [1.3, y, 0]] });
+  }
+  // 헌치 45° 사재
+  for (let i = 0; i < 3; i++) {
+    const x = i * 0.25;
+    bars.push({ id: `haunch-${i}`, radius: r, centerline: [[x, 0.0, 0], [x + 0.4, 0.4, 0]] });
+  }
+  return bars;
+}
