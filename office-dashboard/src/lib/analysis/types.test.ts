@@ -7,8 +7,8 @@ describe("analysis types", () => {
     expect(r.centerline.length).toBe(2);
   });
 
-  it("AnalysisResult version literal is 1", () => {
-    const v: AnalysisResult["version"] = 1;
-    expect(v).toBe(1);
+  it("AnalysisResult version literal is 2", () => {
+    const v: AnalysisResult["version"] = 2;
+    expect(v).toBe(2);
   });
 });

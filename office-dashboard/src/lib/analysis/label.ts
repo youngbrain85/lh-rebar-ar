@@ -1,35 +1,59 @@
-// 표시용 간략명 부여 — 원본 모델의 긴 요소명 대신 "수직-내측-1" 형식으로 보여준다.
-// 번호는 (방향, 레이어) 그룹 내 위치순: 수직근은 X(벽 길이 방향), 수평근은 Y(높이) 오름차순.
+// 표시용 간략명 부여 — 원본 모델의 긴 요소명 대신 "세로-내측-1" 형식으로 보여준다.
+// 번호는 (방향군, 레이어) 그룹 내 위치순: 각 철근군 축에 수직인 성분으로 줄을 세운다.
 // 반환 배열은 그룹·번호순으로 정렬돼 있어 테이블 표시 순서로 그대로 쓴다.
-import { samplePolyline } from "./geom";
-import type { ClassifiedRebar, RebarRecord } from "./types";
+import { barMidpoint, dot } from "./geom";
+import type { ClassifiedRebar, DirectionFamily, RebarRecord, Vec3 } from "./types";
 
-const DIRECTION_KO = { vertical: "수직", horizontal: "수평" } as const;
 const LAYER_KO = { inner: "내측", outer: "외측" } as const;
+/** 부동소수 노이즈로 순서가 뒤집히지 않도록 하는 동률 판정 폭(m) — 실제 그룹 내 간격은
+ * 수 cm~수십 cm이므로 이보다 훨씬 크다 */
+const TIE_EPS = 1e-6;
+const cmp = (a: number, b: number) => (Math.abs(a - b) < TIE_EPS ? 0 : a - b);
 
 export function assignLabels(
   records: RebarRecord[],
   design: ClassifiedRebar[],
   scan: ClassifiedRebar[],
+  families: DirectionFamily[],
 ): RebarRecord[] {
+  const familyLabel = new Map(families.map((f) => [f.id, f.label]));
+  // deriveDirectionFamilies가 up과의 각도 오름차순(세로 → 사재 → 가로)으로 반환하므로,
+  // 이 순서를 그대로 그룹 순서로 쓴다 — id 문자열 사전순은 "h1" < "v1"이라 뒤집힌다
+  const familyIndex = new Map(families.map((f, i) => [f.id, i]));
   const designById = new Map(design.map((r) => [r.id, r]));
   const scanById = new Map(scan.map((r) => [r.id, r]));
 
   // 위치 기준: 설계 중심선 우선(미시공 포함), 도면 외는 정합된 스캔 중심선 — 둘 다 설계 좌표계
-  const sortPos = (rec: RebarRecord): number => {
+  const axisOf = new Map(families.map((f) => [f.id, f.axis]));
+  // 철근군 축 방향 성분을 제거한 위치 — 같은 축을 따라 늘어선 철근들을 축에 수직한
+  // 방향으로 줄 세우기 위함. 세계 좌표축(x/y) 중 하나를 고정으로 고르면 45° 근처에서
+  // 부동소수 오차로 정렬 방향이 뒤집힐 수 있어(경계값 코인플립), 축 자체를 기준으로 뺀다.
+  const perpPos = (rec: RebarRecord): Vec3 => {
     const rebar =
       (rec.designId != null ? designById.get(rec.designId) : undefined) ??
       (rec.scanId != null ? scanById.get(rec.scanId) : undefined);
-    if (!rebar) return Number.POSITIVE_INFINITY;
-    const mid = samplePolyline(rebar.centerline, 3)[1];
-    return rec.direction === "vertical" ? mid[0] : mid[1];
+    if (!rebar) return [Infinity, Infinity, Infinity];
+    const mid = barMidpoint(rebar);
+    const ax = axisOf.get(rec.direction);
+    if (!ax) return mid;
+    const along = dot(mid, ax);
+    return [mid[0] - along * ax[0], mid[1] - along * ax[1], mid[2] - along * ax[2]];
   };
 
-  const withPos = records.map((rec) => ({ rec, pos: sortPos(rec) }));
+  const withPos = records.map((rec) => ({ rec, pos: perpPos(rec) }));
   withPos.sort((a, b) => {
-    if (a.rec.direction !== b.rec.direction) return a.rec.direction === "vertical" ? -1 : 1;
+    if (a.rec.direction !== b.rec.direction) {
+      // families에 없는 미지의 방향은 유한한 sentinel로 맨 뒤로 보낸다 — 둘 다
+      // Infinity였다면 Infinity - Infinity = NaN이 돼 두 미지 방향이 "같다"고
+      // 취급되면서(NaN은 비교자에서 +0처럼 동작) 그룹 뭉침 불변식이 깨질 수 있었다
+      const ai = familyIndex.get(a.rec.direction) ?? families.length;
+      const bi = familyIndex.get(b.rec.direction) ?? families.length;
+      if (ai !== bi) return ai - bi;
+      // 둘 다 미지 방향이라 순위가 같으면, id 문자열로 전체 순서를 마저 정한다
+      return a.rec.direction < b.rec.direction ? -1 : 1;
+    }
     if (a.rec.layer !== b.rec.layer) return a.rec.layer === "outer" ? -1 : 1;
-    return a.pos - b.pos;
+    return cmp(a.pos[0], b.pos[0]) || cmp(a.pos[2], b.pos[2]) || cmp(a.pos[1], b.pos[1]);
   });
 
   const counters = new Map<string, number>();
@@ -37,6 +61,11 @@ export function assignLabels(
     const groupKey = `${rec.direction}/${rec.layer}`;
     const n = (counters.get(groupKey) ?? 0) + 1;
     counters.set(groupKey, n);
-    return { ...rec, label: `${DIRECTION_KO[rec.direction]}-${LAYER_KO[rec.layer]}-${n}` };
+    const dirLabel = familyLabel.get(rec.direction) ?? rec.direction;
+    return {
+      ...rec,
+      directionLabel: dirLabel,
+      label: `${dirLabel}-${LAYER_KO[rec.layer]}-${n}`,
+    };
   });
 }

@@ -2,7 +2,7 @@
 // 라이다 앱 대역: 설계 OBJ를 교란해 as-built 데모 스캔을 만들어 업로드한다.
 // 사용: node scripts/make-demo-scan.mjs                       → scratch/demo-rebars.json만 생성
 //       node scripts/make-demo-scan.mjs --upload http://localhost:3000 --site 5
-// 환경: SCAN_UPLOAD_TOKEN (업로드 시 필수, .env.local과 동일 값)
+// 환경: SCAN_UPLOAD_TOKEN (선택 — 서버에 설정돼 있을 때만 필요)
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -102,14 +102,14 @@ if (uploadIdx > 0) {
   const siteIdx = process.argv.indexOf("--site");
   const site = siteIdx > 0 ? process.argv[siteIdx + 1] : "5";
   const token = process.env.SCAN_UPLOAD_TOKEN;
-  if (!token) throw new Error("SCAN_UPLOAD_TOKEN 환경변수 필요");
+  const headers = token ? { authorization: `Bearer ${token}` } : {};
   const form = new FormData();
   form.set("site_id", site);
   form.set("captured_at", new Date().toISOString());
   form.set("rebars", new Blob([JSON.stringify(file)], { type: "application/json" }), "rebars.json");
   const res = await fetch(`${base}/api/scan-upload`, {
     method: "POST",
-    headers: { authorization: `Bearer ${token}` },
+    headers,
     body: form,
   });
   console.log(res.status, await res.text());

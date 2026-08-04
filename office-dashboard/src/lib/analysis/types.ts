@@ -12,9 +12,25 @@ export interface Rebar {
   radius: number;
 }
 
-export type Direction = "horizontal" | "vertical";
+/** 방향군 식별자 — "v1"(세로) "h1"(가로) "d1"(사재) 형태. 설계모델에서 자동 추출된다. */
+export type DirectionId = string;
+
+/** 방향군: 대표 축과 표시 이름 */
+export interface DirectionFamily {
+  id: DirectionId;
+  /** "세로" | "가로" | "사재 45°" 등 표시용 */
+  label: string;
+  /** 부호 정규화된 단위 축 */
+  axis: Vec3;
+}
+
 export type Layer = "outer" | "inner";
-export type ClassifiedRebar = Rebar & { direction: Direction; layer: Layer };
+export type ClassifiedRebar = Rebar & {
+  direction: DirectionId;
+  /** 표시용 방향군 이름 — classifyRebars가 분류 시점의 families로부터 부여한다 */
+  directionLabel: string;
+  layer: Layer;
+};
 
 export interface RegistrationResult {
   matrix: Mat4;
@@ -40,16 +56,19 @@ export type Verdict = "pass" | "out_of_tolerance" | "missing" | "extra";
 export interface RebarRecord {
   designId: string | null; // null = 도면 외
   scanId: string | null;   // null = 미시공
-  direction: Direction;
+  direction: DirectionId;
+  /** 표시용 방향군 이름 ("세로" / "사재 45°") */
+  directionLabel?: string;
   layer: Layer;
   deviationMm: { mean: number; max: number } | null;
   verdict: Verdict;
-  /** 표시용 간략명 (예: "수직-내측-1") — assignLabels가 부여, 저장 결과에도 포함 */
+  /** 표시용 간략명 (예: "세로-내측-1") */
   label?: string;
 }
 
 export interface GroupSummary {
-  direction: Direction;
+  direction: DirectionId;
+  directionLabel: string;
   layer: Layer;
   designCount: number;
   scanCount: number;
@@ -70,11 +89,23 @@ export interface AnalysisSummary {
 }
 
 export interface AnalysisResult {
-  version: 1;
+  version: 2;
   scanId: string;
   arId: string;
   registration: RegistrationResult;
+  /** 위치 편차 판정용 허용오차 (mm) */
   toleranceMm: number;
+  /**
+   * 방향군. 라벨 자체는 이미 RebarRecord.label/directionLabel에 구워져 저장되므로
+   * "라벨 복원"용이 아니다. 원래는 재방문 시 그룹 정렬 순서·요구간격 입력칸 이름에
+   * 쓰려 했으나, 현재 로드 경로(AnalysisView의 prevRes 처리)는 이 필드를 state로
+   * 읽어들이지 않는다 — 저장만 되고 아직 다시 읽히지는 않는 필드다.
+   */
+  families: DirectionFamily[];
+  /** 그룹별 요구 간격 (mm). key = `${direction}/${layer}` */
+  requiredSpacingMm: Record<string, number>;
+  /** 그룹별 실측 간격 중앙값 */
+  spacingGroups: { direction: DirectionId; layer: Layer; medianMm: number; count: number }[];
   rebars: RebarRecord[];
   summary: AnalysisSummary;
 }

@@ -101,6 +101,10 @@ Working and verified on device:
 - **라이브 협업**: field screen at native aspect (`object-contain`), participants, 🎤 talk-back, click-to-annotate (포인터 / 📌 메모 modes), clear-memos
 - **시공 분석**: as-built 스캔(철근 중심선 JSON) 업로드 → 브라우저 메인스레드에서 설계모델과
   정합(PCA+ICP)·철근별 매칭 → 미시공/허용초과/도면외 판정 + 3D 오버레이.
+  간격·방향은 설계모델에서 뽑아낸 **방향군**(수직 철근뿐 아니라 경사진 벽체 주철근·45° 헌치
+  사재도 포함) 기준으로 계산한다. 판정 임계선 대신, KDS 10 20 50에 간격 오차 기준이 없다는
+  점 때문에 **편차 크기를 5단계 색으로 칠하는 컨투어 지도**(사용자 지정 상한, 기본 지표는
+  간격 편차·토글로 위치 편차)를 벽면에 띄운다.
   스토리지는 Vercel Blob (BriconLab 이관 스펙: `api/SCAN_STORAGE_REQUEST.md`).
   데모 업로드: `node office-dashboard/scripts/make-demo-scan.mjs --upload <url> --site 5`
 
@@ -176,6 +180,7 @@ screen is the device screen, so the field app raycasts that point directly.
 9. **Freshly minted LiveKit tokens can 401 once** (clock skew). `LiveShareService` retries the same token after 1.5s before falling back to the static demo token.
 10. **Adding a new Swift file requires `xcodegen generate`** before it compiles — a "cannot find X in scope" error on a brand-new file usually means the project wasn't regenerated.
 11. **Do NOT enable the mic at LiveKit connect.** `ConnectOptions(enableMicrophone: true)` starts the audio engine during connect and can throw "Audio engine returned error code: -9000" on some devices/routes (Bluetooth, first-run permission race, init timing — LiveKit issue #849 family), which aborted the entire screen share. The mic is now **opt-in**: `LiveShareService.toggleMic()` enables it separately and swallows failures. Screen sharing must always work without the mic. (If robust always-on two-way voice is ever needed, set `AudioManager.shared.sessionConfiguration` explicitly — `.playAndRecord` / `.videoChat` / `.allowBluetooth` — instead of reverting this.)
+12. **컨투어 텍스처는 `NearestFilter`로 둔다.** 선형 보간을 켜면 색이 섞여 단계 경계가 사라지고, "몇 단계인가"를 눈으로 셀 수 없게 된다. 보간은 값(IDW)에서 이미 끝났고 색은 계단이어야 한다.
 
 ---
 
@@ -247,6 +252,19 @@ The app normally fetches tokens from the dashboard at runtime; the embedded
 **Field-test feedback status** (`TalkFile_어플 테스트 결과.pdf`): all AR-app items resolved
 (button removals, label occlusion, fine-adjust reset, Visual SLAM). The LiDAR
 scan app section of that document belongs to a **different repo and is out of scope here**.
+
+**Known limitation — registration can lock onto a 90°-wrong basin for near-square walls:**
+`coarseCandidates` in `office-dashboard/src/lib/analysis/registration.ts` builds its 4 initial-guess
+candidates by pairing the scan's PCA eigenvectors with the design's **by position** (1st axis ↔ 1st
+axis, 2nd ↔ 2nd), not by chirality. When a wall's two in-plane extents are within ~10% of each other
+(common for roughly square panels), the eigenvector ordering sits near a swap boundary — a single
+extra or missing rebar in the scan can flip which eigenvector comes first, sending the initial guess
+90° off into a stable-but-wrong ICP basin. Degradation is graceful, not silent: the trimmed-RMS gate
+(fails registration above 30mm, see `registerScan`) catches the bad basin, so the user sees
+"자동 정합 실패" and the manual initial-transform controls (X/Y/Z + yaw nudge, `AnalysisView.tsx`)
+rather than a wrong answer being presented as good. Proper fix is pairing eigenvectors by chirality
+instead of position — a change to the registration core, deliberately out of scope for the
+direction-family/contour branch that surfaced this.
 
 ---
 

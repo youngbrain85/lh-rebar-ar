@@ -37,6 +37,33 @@ export function makeWallGrid(opts: Partial<GridOpts> = {}): Rebar[] {
   return out;
 }
 
+/**
+ * makeWallGrid에 45° 사재군(세 번째 방향군)을 더한 벽체 — 방향군이 2개(세로/가로)로
+ * 고정돼 있지 않은 엔진 레벨 단위 테스트용. Task 8의 makeHaunchWall과는 별개 — 이쪽은
+ * direction/classify/judge/label 엔진 단위 테스트, 그쪽은 전체 파이프라인 헌치 검증용이다.
+ *
+ * 사재 축은 (1,1,0)/√2(정확히 45°) — 세 개가 축과 나란히, 축에 "수직"인 방향
+ * (1,-1,0)으로 서로 0.15m씩 떨어져 있다. 즉 서로 평행한 개별 철근이며, 축을 따라
+ * 한 줄로 이어 그린 게 아니다(그렇게 그리면 y=x 위에서 mid[0]===mid[1]이 되어,
+ * "축에 수직한 성분으로 정렬"하는지 "세계 x/y 중 하나로 정렬"하는지를 구별하는
+ * 테스트가 무력화된다). 이 배치라면 x로 정렬한 순서와 y로 정렬한 순서가 서로
+ * 반대가 되므로, 정렬 축 선택 버그가 있으면 반드시 순서가 뒤집혀 드러난다.
+ */
+export function makeDiagonalFamilyGrid(opts: Partial<GridOpts> = {}): Rebar[] {
+  const o = { ...DEFAULTS, ...opts };
+  const out = makeWallGrid(opts);
+  for (const [layer, z] of [["outer", 0], ["inner", -o.layerGap]] as const) {
+    for (let i = 0; i < 3; i++) {
+      const sx = i * 0.15, sy = -i * 0.15; // 축에 수직 방향(1,-1,0)으로 나란히 오프셋
+      out.push({
+        id: `d-d-${layer}-${i}`, radius: o.radius,
+        centerline: [[sx, sy, z], [sx + 0.175, sy + 0.175, z], [sx + 0.35, sy + 0.35, z]],
+      });
+    }
+  }
+  return out;
+}
+
 export function rigidMat4(yawDeg: number, t: Vec3): Mat4 {
   const a = (yawDeg * Math.PI) / 180;
   const c = Math.cos(a), s = Math.sin(a);
@@ -69,4 +96,36 @@ export function offsetRebar(rebars: Rebar[], id: string, offset: Vec3): Rebar[] 
       centerline: r.centerline.map((p): Vec3 => [p[0] + offset[0], p[1] + offset[1], p[2] + offset[2]]),
     },
   );
+}
+
+/**
+ * 헌치가 있는 경사 옹벽 — 발주처 Mock-up 모사.
+ *  · 주철근: 약 8°(atan(0.28/2) = 7.97°) 기운 세로근 6본 (벽이 위로 갈수록 얇아진다)
+ *  · 배력근: 수평근 4본
+ *  · 헌치 사재: 저판부 45° 대각근 3본
+ *
+ * 전 철근이 z=0 한 평면 위에 있다 — 단일 레이어(outer), 완전 평면 픽스처다.
+ * 설계 좌표 기준 방향군별 간격 중앙값(runAnalysis 결과, haunch.test.ts로 고정):
+ *  · 세로(v1) 198.07mm(5구간) · 가로(h1) 500mm(3구간) · 사재(d1) 176.78mm(2구간)
+ * 사재 176.78mm = 250mm(x 오프셋) × sin45° — 방향군 자기 좌표계로 재고 있다는 근거.
+ */
+export function makeHaunchWall(): Rebar[] {
+  const bars: Rebar[] = [];
+  const r = 0.008;
+  // 경사 주철근 (아래 x → 위 x+0.28, 높이 2m ⇒ 약 8°)
+  for (let i = 0; i < 6; i++) {
+    const x = i * 0.2;
+    bars.push({ id: `main-${i}`, radius: r, centerline: [[x, 0.4, 0], [x + 0.28, 2.4, 0]] });
+  }
+  // 수평 배력근
+  for (let i = 0; i < 4; i++) {
+    const y = 0.6 + i * 0.5;
+    bars.push({ id: `horz-${i}`, radius: r, centerline: [[0, y, 0], [1.3, y, 0]] });
+  }
+  // 헌치 45° 사재
+  for (let i = 0; i < 3; i++) {
+    const x = i * 0.25;
+    bars.push({ id: `haunch-${i}`, radius: r, centerline: [[x, 0.0, 0], [x + 0.4, 0.4, 0]] });
+  }
+  return bars;
 }

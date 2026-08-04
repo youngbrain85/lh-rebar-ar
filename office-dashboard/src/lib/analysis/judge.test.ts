@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { classifyRebars, estimateWallNormal } from "./classify";
+import { deriveDirectionFamilies } from "./direction";
 import { judge, rejudgeRecords } from "./judge";
 import { matchRebars } from "./match";
 import { makeWallGrid, offsetRebar } from "./testFixtures";
 
 const UP: [number, number, number] = [0, 1, 0];
-const classify = (r = makeWallGrid()) => classifyRebars(r, UP, estimateWallNormal(r));
+const fams = deriveDirectionFamilies(makeWallGrid(), UP);
+const classify = (r = makeWallGrid()) => classifyRebars(r, UP, estimateWallNormal(r), fams);
 
 describe("judge", () => {
   it("clean scan → all pass, summary counts correct", () => {
