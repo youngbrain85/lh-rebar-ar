@@ -10,7 +10,6 @@ import {
 } from "@mantine/core";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type * as THREE from "three";
-import { deriveDirectionFamilies } from "../../lib/analysis/direction";
 import { rejudgeRecords } from "../../lib/analysis/judge";
 import { assignLabels } from "../../lib/analysis/label";
 import type { AnalysisOutput } from "../../lib/analysis/pipeline";
@@ -125,9 +124,8 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
           toleranceMm: tolerance, up: [0, 1, 0], manualInit,
         });
         // 표시용 간략명 부여 (세로-내측-1 …) — 저장 결과에도 포함되도록 출력을 교체.
-        // 방향군은 파이프라인과 같은 기준(설계모델 + up)으로 다시 뽑는다 — 정식 배선은 Task 5.
-        const families = deriveDirectionFamilies(designRebars, [0, 1, 0]);
-        out.rebars = assignLabels(out.rebars, out.designClassified, out.scanTransformed, families);
+        // 방향군은 파이프라인이 이미 뽑아 out.families로 내보낸다 — 다시 뽑지 않는다.
+        out.rebars = assignLabels(out.rebars, out.designClassified, out.scanTransformed, out.families);
         setOutput(out);
         setSavedRecords(null);
         if (!out.registration.failed) {

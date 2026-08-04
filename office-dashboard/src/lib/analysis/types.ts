@@ -95,7 +95,11 @@ export interface AnalysisResult {
   registration: RegistrationResult;
   /** 위치 편차 판정용 허용오차 (mm) */
   toleranceMm: number;
-  /** 방향군 — 재방문 시 라벨 복원에 쓴다 */
+  /**
+   * 방향군. 라벨 자체는 이미 RebarRecord.label/directionLabel에 구워져 저장되므로
+   * "라벨 복원"용이 아니다 — 재방문 시 **그룹 정렬 순서**(각도순, id 사전순이 아님)와
+   * 요구간격 입력칸 이름에 쓴다.
+   */
   families: DirectionFamily[];
   /** 그룹별 요구 간격 (mm). key = `${direction}/${layer}` */
   requiredSpacingMm: Record<string, number>;
