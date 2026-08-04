@@ -6,15 +6,18 @@
 // 기존 결과가 저장돼 있으면 자동 로드하고, 재분석 버튼으로 다시 돌릴 수 있다.
 import {
   Alert, Badge, Box, Button, Card, Center, Chip, Group, Loader, NumberInput,
-  Paper, ScrollArea, SimpleGrid, Slider, Stack, Table, Text,
+  Paper, ScrollArea, SegmentedControl, SimpleGrid, Slider, Stack, Table, Text,
 } from "@mantine/core";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type * as THREE from "three";
-import { DEFAULT_CONTOUR_MAX } from "../../lib/analysis/contour";
+import {
+  buildContourField, CONTOUR_COLORS, contourColor, DEFAULT_CONTOUR_MAX, type ContourSample,
+} from "../../lib/analysis/contour";
 import { rejudgeRecords } from "../../lib/analysis/judge";
 import { assignLabels } from "../../lib/analysis/label";
 import type { AnalysisOutput } from "../../lib/analysis/pipeline";
 import { parseRebarsJson } from "../../lib/analysis/rebarsSchema";
+import { computeSpacing, spacingGroupKey, suggestRequiredSpacing } from "../../lib/analysis/spacing";
 import type {
   AnalysisResult, ClassifiedRebar, Mat4, Rebar, RebarRecord, Verdict,
 } from "../../lib/analysis/types";
@@ -66,6 +69,12 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
   const [focusKey, setFocusKey] = useState<string | null>(null);
   // 수동 폴백 입력 (정합 실패 시에만 노출)
   const [nudge, setNudge] = useState({ tx: 0, ty: 0, tz: 0, yaw: 0 });
+  // 지표: 간격 편차(기본) ↔ 위치 편차
+  const [metric, setMetric] = useState<"spacing" | "position">("spacing");
+  const [showContour, setShowContour] = useState(true);
+  const [contourMax, setContourMax] = useState<number>(DEFAULT_CONTOUR_MAX.spacing);
+  /** 그룹별 요구 간격 (mm). key = `${direction}/${layer}` */
+  const [requiredSpacing, setRequiredSpacing] = useState<Record<string, number>>({});
 
   // ---- 입력 데이터 로드: 설계 + 스캔 + 기존 결과 ----
   useEffect(() => {
@@ -97,6 +106,7 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
           ) {
             setSavedRecords(prev.rebars);
             setTolerance(prev.toleranceMm);
+            if (prev.requiredSpacingMm) setRequiredSpacing(prev.requiredSpacingMm);
             if (Array.isArray(prev.registration?.matrix) && prev.registration.matrix.length === 16) {
               setSavedMatrix(prev.registration.matrix);
             }
@@ -123,6 +133,7 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
         const out = await run({
           design: designRebars, scan: scanRebars,
           toleranceMm: tolerance, up: [0, 1, 0], manualInit,
+          requiredSpacingMm: requiredSpacing,
         });
         // 표시용 간략명 부여 (세로-내측-1 …) — 저장 결과에도 포함되도록 출력을 교체.
         // 방향군은 파이프라인이 이미 뽑아 out.families로 내보낸다 — 다시 뽑지 않는다.
@@ -130,6 +141,10 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
         setOutput(out);
         setSavedRecords(null);
         if (!out.registration.failed) {
+          // 그룹 실측 중앙값으로 기본값을 제안하되, 사용자가 이미 입력해 둔 값은 덮지 않는다
+          const suggested = suggestRequiredSpacing(out.spacing.groups);
+          const merged = { ...suggested, ...requiredSpacing };
+          setRequiredSpacing(merged);
           const result: AnalysisResult = {
             version: 2, scanId: scan.scan_id, arId,
             registration: {
@@ -139,8 +154,7 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
             },
             toleranceMm: tolerance,
             families: out.families,
-            // 요구 간격 입력 UI는 Task 7에서 붙는다 — 그때까지는 그룹 실측 중앙값을 기준으로 삼는다
-            requiredSpacingMm: {},
+            requiredSpacingMm: merged,
             spacingGroups: out.spacing.groups,
             rebars: out.rebars,
             summary: out.summary,
@@ -162,8 +176,14 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
         setError(e instanceof Error ? e.message : String(e));
       }
     },
-    [designRebars, scanRebars, tolerance, run, scan.site_id, scan.scan_id, arId],
+    [designRebars, scanRebars, tolerance, run, scan.site_id, scan.scan_id, arId, requiredSpacing],
   );
+
+  const changeMetric = useCallback((v: string) => {
+    const m = v === "position" ? "position" : "spacing";
+    setMetric(m);
+    setContourMax(DEFAULT_CONTOUR_MAX[m]);
+  }, []);
 
   // ---- 표시 데이터: 라이브 출력 우선, 없으면 저장본. 슬라이더는 재판정만 ----
   const view = useMemo(() => {
@@ -171,6 +191,46 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
     if (!base) return null;
     return rejudgeRecords(base, tolerance);
   }, [output, savedRecords, tolerance]);
+
+  /** 요구 간격이 바뀌면 정합을 다시 돌리지 않고 간격만 다시 잰다 */
+  const spacing = useMemo(() => {
+    if (!output) return null;
+    return computeSpacing(output.scanTransformed, output.families, output.wallNormal, requiredSpacing);
+  }, [output, requiredSpacing]);
+
+  /** 위치 편차 지표의 표본: 시공 철근 중점 + 그 철근의 편차 */
+  const positionSamples = useMemo<ContourSample[]>(() => {
+    if (!output || !view) return [];
+    const byId = new Map(output.scanTransformed.map((r) => [r.id, r]));
+    const out: ContourSample[] = [];
+    for (const rec of view.rebars) {
+      if (!rec.scanId || !rec.deviationMm) continue;
+      const bar = byId.get(rec.scanId);
+      if (!bar) continue;
+      const line = bar.centerline;
+      const mid = line[Math.floor(line.length / 2)];
+      out.push({ midpoint: mid, deviationMm: rec.deviationMm.mean });
+    }
+    return out;
+  }, [output, view]);
+
+  // ★ 반드시 useMemo로 감쌀 것. 뷰어의 컨투어 이펙트는 이 값의 identity로 갱신을 판단하고,
+  //   갱신 때마다 DataTexture·지오메트리·머티리얼을 dispose하고 새로 만든다. 렌더마다 새
+  //   ContourField를 만들면 요구간격 입력에 한 글자 칠 때마다 GPU 자원이 갈린다.
+  const contour = useMemo(() => {
+    // 정합 실패 시 scanTransformed는 엉뚱한 자리라 간격·평면이 무의미하다 — 지도를 끈다
+    if (!output || !showContour || output.registration.failed) return null;
+    const samples: ContourSample[] = metric === "spacing" ? spacing?.gaps ?? [] : positionSamples;
+    if (samples.length === 0) return null;
+    return buildContourField(samples, output.plane);
+  }, [output, showContour, metric, spacing, positionSamples]);
+
+  /** 요구 간격 입력 폼에 띄울 그룹 목록 */
+  const spacingGroups = spacing?.groups.filter((g) => g.count > 0) ?? [];
+  const familyLabel = useCallback(
+    (id: string) => output?.families.find((f) => f.id === id)?.label ?? id,
+    [output],
+  );
 
   if (loading)
     return (
@@ -194,8 +254,8 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
           showMesh={showMesh}
           meshUrl={meshUrl}
           registrationMatrix={output?.registration.failed ? null : output?.registration.matrix ?? savedMatrix}
-          contour={null}
-          contourMax={DEFAULT_CONTOUR_MAX.spacing}
+          contour={contour}
+          contourMax={contourMax}
           focusKey={focusKey}
         />
 
@@ -211,6 +271,20 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
             {meshUrl && (output?.registration.failed === false || savedMatrix) && (
               <Chip size="xs" color="indigo" checked={showMesh} onChange={setShowMesh}>
                 스캔 메시
+              </Chip>
+            )}
+            {output && (
+              <Chip
+                size="xs" color="grape" checked={showContour}
+                onChange={(on) => {
+                  setShowContour(on);
+                  // 지도를 켜면 설계 고스트를 내린다. 고스트는 depthWrite:false + 렌더순서상
+                  // 평면보다 뒤에 있어도 위에 덮여 그려지므로(순서 무관 투명의 한계), 회색이
+                  // 색 띠를 씌워 단계 구분을 흐린다. 사용자가 칩으로 다시 켤 수 있다.
+                  if (on) setShowDesign(false);
+                }}
+              >
+                편차 지도
               </Chip>
             )}
           </Group>
@@ -236,6 +310,22 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
           style={{ position: "absolute", top: 8, right: 8, background: "rgba(255,255,255,0.92)" }}
         >
           <Text size="xs" fw={700} mb={4}>색상 안내</Text>
+          {output && showContour && (
+            <Box mb={8}>
+              <Text size="xs" fw={600} mb={3}>
+                {metric === "spacing" ? "간격 편차" : "위치 편차"} (mm)
+              </Text>
+              <Group gap={0} wrap="nowrap">
+                {CONTOUR_COLORS.map((c) => (
+                  <Box key={c} h={10} style={{ flex: 1, background: c }} />
+                ))}
+              </Group>
+              <Group justify="space-between">
+                <Text size="10px" ff="monospace">0</Text>
+                <Text size="10px" ff="monospace">≥{contourMax}</Text>
+              </Group>
+            </Box>
+          )}
           <Stack gap={3}>
             <LegendRow color={LAYER_COLOR.pass} label="정상 (허용오차 이내)" />
             <LegendRow color={LAYER_COLOR.out_of_tolerance} label="허용초과" />
@@ -314,52 +404,124 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
               </Text>
             )}
 
+            <SegmentedControl
+              size="xs" fullWidth value={metric} onChange={changeMetric}
+              data={[
+                { value: "spacing", label: "간격 편차" },
+                { value: "position", label: "위치 편차" },
+              ]}
+            />
+
             <Box>
               <Text size="xs" fw={600} mb={2}>
-                허용오차 ±{tolerance}mm
+                컨투어 상한 {contourMax}mm — 이 값 이상은 모두 최상위 색
               </Text>
-              <Slider min={1} max={50} value={tolerance} onChange={setTolerance}
-                marks={[{ value: 10 }, { value: 25 }, { value: 50 }]} size="sm" />
+              <Slider min={5} max={200} step={5} value={contourMax} onChange={setContourMax}
+                marks={[{ value: 30 }, { value: 50 }, { value: 100 }]} size="sm" />
+              <Text size="xs" c="dimmed" mt={2}>
+                KDS 10 20 50은 최소 간격만 규정하고 오차 기준이 없어 상한은 사용자가 정합니다.
+              </Text>
             </Box>
+
+            {metric === "spacing" ? (
+              <Box>
+                <Text size="xs" fw={600} mb={4}>요구 간격 (mm)</Text>
+                <Stack gap={4}>
+                  {spacingGroups.map((g) => {
+                    const key = spacingGroupKey(g.direction, g.layer);
+                    return (
+                      <Group key={key} gap={6} wrap="nowrap">
+                        <Text size="xs" style={{ flex: 1 }}>
+                          {familyLabel(g.direction)}·{g.layer === "outer" ? "외측" : "내측"}
+                          <Text span size="xs" c="dimmed"> (실측 중앙값 {g.medianMm.toFixed(0)})</Text>
+                        </Text>
+                        <NumberInput
+                          size="xs" w={92} step={5} min={10}
+                          value={requiredSpacing[key] ?? Math.round(g.medianMm / 5) * 5}
+                          onChange={(v) =>
+                            setRequiredSpacing((prev) => ({ ...prev, [key]: Number(v) || 0 }))
+                          }
+                        />
+                      </Group>
+                    );
+                  })}
+                </Stack>
+              </Box>
+            ) : (
+              <Box>
+                <Text size="xs" fw={600} mb={2}>허용오차 ±{tolerance}mm</Text>
+                <Slider min={1} max={50} value={tolerance} onChange={setTolerance}
+                  marks={[{ value: 10 }, { value: 25 }, { value: 50 }]} size="sm" />
+              </Box>
+            )}
 
             <Paper withBorder radius="md" style={{ flex: 1, minHeight: 0 }}>
               <ScrollArea h="100%">
-                <Table striped highlightOnHover stickyHeader verticalSpacing={4} fz="xs">
-                  <Table.Thead>
-                    <Table.Tr>
-                      <Table.Th>철근</Table.Th>
-                      <Table.Th>분류</Table.Th>
-                      <Table.Th ta="right">편차(mm)</Table.Th>
-                      <Table.Th>판정</Table.Th>
-                    </Table.Tr>
-                  </Table.Thead>
-                  <Table.Tbody>
-                    {view.rebars.map((r) => {
-                      const key = r.designId ?? r.scanId ?? "";
-                      return (
-                        <Table.Tr key={key} style={{ cursor: "pointer" }}
-                          bg={focusKey === key ? "var(--mantine-color-yellow-0)" : undefined}
-                          onClick={() => setFocusKey(key)}>
-                          {/* 표시는 간략명, 원본 요소명은 툴팁으로 */}
-                          <Table.Td title={key}>{r.label ?? key}</Table.Td>
+                {metric === "spacing" && !spacing ? (
+                  <Text size="xs" c="dimmed" p="sm">
+                    간격은 저장되지 않습니다 — 「재분석」을 눌러야 표시됩니다.
+                  </Text>
+                ) : metric === "spacing" ? (
+                  <Table striped highlightOnHover stickyHeader verticalSpacing={4} fz="xs">
+                    <Table.Thead>
+                      <Table.Tr>
+                        <Table.Th>구간</Table.Th>
+                        <Table.Th ta="right">실측</Table.Th>
+                        <Table.Th ta="right">요구</Table.Th>
+                        <Table.Th ta="right">편차</Table.Th>
+                      </Table.Tr>
+                    </Table.Thead>
+                    <Table.Tbody>
+                      {(spacing?.gaps ?? []).map((g) => (
+                        <Table.Tr key={`${g.aId}|${g.bId}`}>
                           <Table.Td>
-                            {/* 방향군 표시 이름 — 없으면(예: 마이그레이션 전 저장본) id를 그대로 보여준다 */}
-                            {r.directionLabel ?? r.direction}·
-                            {r.layer === "outer" ? "외측" : "내측"}
+                            {familyLabel(g.direction)}·{g.layer === "outer" ? "외측" : "내측"}
                           </Table.Td>
-                          <Table.Td ta="right" ff="monospace">
-                            {r.deviationMm ? r.deviationMm.mean.toFixed(1) : "—"}
-                          </Table.Td>
-                          <Table.Td>
-                            <Badge size="xs" color={VERDICT_BADGE[r.verdict]} variant="light">
-                              {VERDICT_LABEL[r.verdict]}
-                            </Badge>
+                          <Table.Td ta="right" ff="monospace">{g.spacingMm.toFixed(0)}</Table.Td>
+                          <Table.Td ta="right" ff="monospace">{g.requiredMm.toFixed(0)}</Table.Td>
+                          <Table.Td ta="right" ff="monospace"
+                            style={{ color: contourColor(Math.abs(g.deviationMm), contourMax) }}>
+                            {g.deviationMm > 0 ? "+" : ""}{g.deviationMm.toFixed(0)}
                           </Table.Td>
                         </Table.Tr>
-                      );
-                    })}
-                  </Table.Tbody>
-                </Table>
+                      ))}
+                    </Table.Tbody>
+                  </Table>
+                ) : (
+                  <Table striped highlightOnHover stickyHeader verticalSpacing={4} fz="xs">
+                    <Table.Thead>
+                      <Table.Tr>
+                        <Table.Th>철근</Table.Th>
+                        <Table.Th>분류</Table.Th>
+                        <Table.Th ta="right">편차(mm)</Table.Th>
+                        <Table.Th>판정</Table.Th>
+                      </Table.Tr>
+                    </Table.Thead>
+                    <Table.Tbody>
+                      {view.rebars.map((r) => {
+                        const key = r.designId ?? r.scanId ?? "";
+                        return (
+                          <Table.Tr key={key} style={{ cursor: "pointer" }}
+                            bg={focusKey === key ? "var(--mantine-color-yellow-0)" : undefined}
+                            onClick={() => setFocusKey(key)}>
+                            <Table.Td title={key}>{r.label ?? key}</Table.Td>
+                            <Table.Td>
+                              {familyLabel(r.direction)}·{r.layer === "outer" ? "외측" : "내측"}
+                            </Table.Td>
+                            <Table.Td ta="right" ff="monospace">
+                              {r.deviationMm ? r.deviationMm.mean.toFixed(1) : "—"}
+                            </Table.Td>
+                            <Table.Td>
+                              <Badge size="xs" color={VERDICT_BADGE[r.verdict]} variant="light">
+                                {VERDICT_LABEL[r.verdict]}
+                              </Badge>
+                            </Table.Td>
+                          </Table.Tr>
+                        );
+                      })}
+                    </Table.Tbody>
+                  </Table>
+                )}
               </ScrollArea>
             </Paper>
           </>
