@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { mat4FromRotTrans, mat4Identity } from "./geom";
-import { requiredSpacingMatchesMode, runAnalysis } from "./pipeline";
-import { spacingGroupKey } from "./spacing";
+import { frameOfMethod, runAnalysis, usableRequiredSpacing } from "./pipeline";
+import { spacingGroupKey, suggestRequiredSpacing } from "./spacing";
 import {
   jitterRebars, makeDiagonalFamilyGrid, makeWallGrid, offsetRebar, rigidMat4, transformRebars,
 } from "./testFixtures";
@@ -202,7 +202,8 @@ describe("runAnalysis: frameSource=\"scan\" — 설계모델 없이 분석", () 
 // 리뷰 지적 #1(CRITICAL): AnalysisView.tsx가 저장된 requiredSpacingMm을 프레임이 바뀐
 // 채로 재사용해 조작된 편차(+100mm급)를 만들어낸 버그. 근본 원인은 spacingGroupKey의
 // directionId가 프레임에 종속적이라는 사실이고, 그 사실을 여기서 엔진 레벨로 고정해
-// 둔다 — UI가 requiredSpacingMatchesMode로 가드해야 하는 이유의 근거다.
+// 둔다 — UI가 requiredSpacingMm을 그 값이 나온 프레임과 짝지어 들고 있어야 하는
+// 이유의 근거다(frameOfMethod).
 describe("그룹 키는 프레임에 종속적이다 — requiredSpacingMm이 프레임을 넘어 살아남으면 안 되는 이유", () => {
   const slabRotation = mat4FromRotTrans([1, 0, 0, 0, 0, -1, 0, 1, 0], [0, 0, 0]);
   const UP: [number, number, number] = [0, 1, 0];
@@ -234,19 +235,79 @@ describe("그룹 키는 프레임에 종속적이다 — requiredSpacingMm이 �
   });
 });
 
-describe("requiredSpacingMatchesMode", () => {
-  it("저장 당시 방식과 지금 모드가 일치할 때만 true", () => {
-    expect(requiredSpacingMatchesMode("none", true)).toBe(true);
-    expect(requiredSpacingMatchesMode("auto", false)).toBe(true);
-    expect(requiredSpacingMatchesMode("manual", false)).toBe(true);
+describe("frameOfMethod", () => {
+  it("method:\"none\"만 scan 프레임, 나머지는 전부 design 프레임", () => {
+    expect(frameOfMethod("none")).toBe("scan");
+    expect(frameOfMethod("auto")).toBe("design");
+    expect(frameOfMethod("manual")).toBe("design");
+    // 저장된 결과가 없을 때(null)도 "이 값이 나온 프레임을 알 수 없다"가 아니라
+    // design으로 확정한다 — AnalysisView.tsx의 requiredSpacing 초기값(design)과
+    // 짝을 맞추기 위한 안전한 기본값이다.
+    expect(frameOfMethod(null)).toBe("design");
   });
-  it("저장 당시 방식과 지금 모드가 어긋나면 false", () => {
-    expect(requiredSpacingMatchesMode("none", false)).toBe(false);
-    expect(requiredSpacingMatchesMode("auto", true)).toBe(false);
-    expect(requiredSpacingMatchesMode("manual", true)).toBe(false);
+});
+
+describe("usableRequiredSpacing", () => {
+  const map = { "h1/inner": 125, "h2/inner": 195 };
+
+  it("맵의 프레임과 지금 프레임이 같으면 그대로 돌려준다", () => {
+    expect(usableRequiredSpacing(map, "design", "design")).toEqual(map);
+    expect(usableRequiredSpacing(map, "scan", "scan")).toEqual(map);
   });
-  it("저장된 결과가 없으면(null) 지금이 설계 모드일 때만 true — 지어낼 근거가 없으므로 보수적으로 막는다", () => {
-    expect(requiredSpacingMatchesMode(null, false)).toBe(true);
-    expect(requiredSpacingMatchesMode(null, true)).toBe(false);
+  it("맵의 프레임과 지금 프레임이 다르면 빈 값 — 마운트 시점 잔상이 아니라 값 자신에 붙은 프레임표로만 판단한다", () => {
+    expect(usableRequiredSpacing(map, "design", "scan")).toEqual({});
+    expect(usableRequiredSpacing(map, "scan", "design")).toEqual({});
+  });
+});
+
+// 2차 리뷰 지적 #1(BLOCKING): "지금 모드"를 마운트 시점 체크박스 잔상과 비교하던 이전
+// 가드는, 체크박스가 바로 그 순간 저장된 결과의 method로 동기화되는 경우에만 정확히
+// 거부해 버려 저장된 요구 간격을 조용히 폐기했다(대칭 동기화 직후 항상 "어긋남"으로
+// 판정). 여기서는 AnalysisView.analyze()가 실제로 하는 순서 — usableRequiredSpacing →
+// run() → suggestRequiredSpacing과 병합 — 를 그대로 재현해, 같은 프레임에서는 저장된
+// 값이 실측 중앙값으로 대체되지 않고 살아남는다는 것을 고정해 둔다.
+describe("요구 간격은 같은 프레임에서 재분석해도 유지된다 (마운트 잔상과 무관)", () => {
+  it("같은 프레임(design)이면 사용자가 지정한 값이 실측 중앙값으로 덮이지 않는다", () => {
+    const design = makeWallGrid();
+    const scan = makeWallGrid().map((r, i) => ({ ...r, id: `s${i}` }));
+    const first = runAnalysis({ design, scan, toleranceMm: 10, up: UP });
+    const groupKey = spacingGroupKey(first.spacing.groups[0].direction, first.spacing.groups[0].layer);
+    const median = first.spacing.groups[0].medianMm;
+    // 실측 중앙값과 뚜렷이 다른 값 — 대체됐다면 이 값이 아니라 median 근처가 나온다.
+    const customValue = Math.round(median) + 37;
+    const savedMap = { [groupKey]: customValue };
+    const savedFrame = "design" as const;
+
+    const currentFrame = "design" as const;
+    const usable = usableRequiredSpacing(savedMap, savedFrame, currentFrame);
+    const second = runAnalysis({ design, scan, toleranceMm: 10, up: UP, requiredSpacingMm: usable });
+    const merged = { ...suggestRequiredSpacing(second.spacing.groups), ...usable };
+
+    expect(merged[groupKey]).toBe(customValue);
+    const g = second.spacing.gaps.find((x) => spacingGroupKey(x.direction, x.layer) === groupKey)!;
+    expect(g.requiredMm).toBe(customValue);
+  });
+
+  it("프레임이 다르면(design 저장 → scan 모드) 저장된 값은 쓰이지 않고 실측 중앙값으로 되돌아간다", () => {
+    // (이 케이스는 1차 제출의 핵심 버그를 그대로 재확인한다 — 회귀 방지용)
+    const design = makeWallGrid();
+    const scan = makeWallGrid().map((r, i) => ({ ...r, id: `s${i}` }));
+    const first = runAnalysis({ design, scan, toleranceMm: 10, up: UP });
+    const groupKey = spacingGroupKey(first.spacing.groups[0].direction, first.spacing.groups[0].layer);
+    const median = first.spacing.groups[0].medianMm;
+    const customValue = Math.round(median) + 37;
+    const savedMap = { [groupKey]: customValue };
+    const savedFrame = "design" as const;
+
+    const currentFrame = "scan" as const;
+    const usable = usableRequiredSpacing(savedMap, savedFrame, currentFrame);
+    expect(usable).toEqual({});
+    const second = runAnalysis({
+      design, scan, toleranceMm: 10, up: UP, frameSource: "scan", requiredSpacingMm: usable,
+    });
+    // usable이 비었으므로 모든 그룹이 자기 실측 중앙값을 요구값으로 쓴다(computeSpacing의
+    // `?? med` 폴백) — makeWallGrid는 노이즈 없는 균일 격자라 편차가 정확히 0이어야 한다.
+    // customValue(median+37)가 조금이라도 스며들었다면 이 단언이 깨진다.
+    for (const g of second.spacing.gaps) expect(g.deviationMm).toBeCloseTo(0, 6);
   });
 });

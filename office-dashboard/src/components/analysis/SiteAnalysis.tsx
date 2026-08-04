@@ -122,7 +122,17 @@ export default function SiteAnalysis({ siteId }: { siteId: number }) {
           체크박스로 간격 편차만 잴 수 있습니다.
         </Alert>
       )}
-      <ScanList siteId={siteId} arId={arId} onOpen={(scan) => setOpen(scan)} />
+      <ScanList
+        siteId={siteId} arId={arId}
+        onOpen={(scan) => {
+          // 체크박스는 "스캔"에 속한 상태다 — 모델(arId)이 아니라. 여기서(스캔을 여는
+          // 시점에) false로 리셋해 두면, 이 스캔에 저장된 결과가 있을 때 AnalysisView의
+          // 로드 이펙트가 그 결과의 실제 method로 다시 맞춘다(finding 2 참조). 리셋을
+          // 안 하면 이전에 열었던 스캔에서 켜 둔 체크박스가 새 스캔에 잔상으로 남는다.
+          setNoDesignMode(false);
+          setOpen(scan);
+        }}
+      />
     </Stack>
   );
 }

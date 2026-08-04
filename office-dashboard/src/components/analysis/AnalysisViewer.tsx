@@ -167,9 +167,10 @@ export default function AnalysisViewer({
   // 사용자가 카메라를 직접 조작했는지 — 조작한 뒤에는 자동 프레이밍(설계 고스트 등장,
   // 판정 없는 결과의 스캔 bbox 등)이 시야를 다시 빼앗지 않는다.
   const userMovedRef = useRef(false);
-  // 판정 오버레이가 "빈 상태"였는지 — 없음→있음으로 바뀌는 전환 시점에만 카메라를
-  // 다시 잡는다(매 렌더마다 재프레이밍하지 않는다).
-  const overlayWasEmptyRef = useRef(true);
+  // noDesign(frameSource:"scan") 결과의 스캔 데이터가 "빈 상태"였는지 — 없음→있음으로
+  // 바뀌는 전환 시점에만 카메라를 다시 잡는다(매 렌더마다도, 시공 철근 칩을 껐다 켜도
+  // 재프레이밍하지 않는다 — 아래 판정 오버레이 이펙트 참조).
+  const dataWasEmptyRef = useRef(true);
 
   // ---- 씬 부트스트랩 (1회) ----
   useEffect(() => {
@@ -264,51 +265,56 @@ export default function AnalysisViewer({
     if (!s) return;
     disposeChildren(s.overlay);
     s.keyed.clear();
-    if (!showScanBars) {
-      overlayWasEmptyRef.current = true; // 설계모델만 보기 — 다음에 켜지면 다시 빈→참 전환
-      return;
-    }
-    if (noDesign) {
-      // 판정할 설계가 없는 결과라 records는 항상 빈 배열이다 — 그렇다고 화면을 비워두면
-      // 3D 뷰 왼쪽이 통째로 빈 채로 열린다. scan(이미 스캔 자신의 프레임으로 분류됨)을
-      // 판정색이 아닌 중립색(LAYER_COLOR.asBuilt)으로 그린다 — 정상/도면외 같은 판정색을
-      // 쓰면 존재하지 않는 판정을 지어내는 거짓이 된다. 「시공 철근」 칩이 계속
-      // showScanBars를 통해 이 표시를 껐다 켰다 할 수 있게 한다.
-      const color = hex(LAYER_COLOR.asBuilt);
-      for (const sc of scan) {
-        const group = rebarGroup(sc, color, 1);
-        s.overlay.add(group);
-        s.keyed.set(sc.id, group);
-      }
-    } else {
-      const designById = new Map(design.map((r) => [r.id, r]));
-      const scanById = new Map(scan.map((r) => [r.id, r]));
-      for (const rec of records) {
-        if (!showVerdicts.includes(rec.verdict)) continue;
-        const key = rec.designId ?? rec.scanId ?? "";
-        const color = VERDICT_COLOR[rec.verdict];
-        let group: THREE.Group | null = null;
-        if (rec.verdict === "missing" && rec.designId) {
-          const d = designById.get(rec.designId);
-          if (d) group = rebarGroup(d, color, 0.45); // 설계 위치 고스트
-        } else if (rec.scanId) {
-          const sc = scanById.get(rec.scanId);
-          if (sc) group = rebarGroup(sc, color, 1);
-        }
-        if (group) {
+    if (showScanBars) {
+      if (noDesign) {
+        // 판정할 설계가 없는 결과라 records는 항상 빈 배열이다 — 그렇다고 화면을 비워두면
+        // 3D 뷰 왼쪽이 통째로 빈 채로 열린다. scan(이미 스캔 자신의 프레임으로 분류됨)을
+        // 판정색이 아닌 중립색(LAYER_COLOR.asBuilt)으로 그린다 — 정상/도면외 같은 판정색을
+        // 쓰면 존재하지 않는 판정을 지어내는 거짓이 된다. 「시공 철근」 칩이 계속
+        // showScanBars를 통해 이 표시를 껐다 켰다 할 수 있게 한다.
+        const color = hex(LAYER_COLOR.asBuilt);
+        for (const sc of scan) {
+          const group = rebarGroup(sc, color, 1);
           s.overlay.add(group);
-          s.keyed.set(key, group);
+          s.keyed.set(sc.id, group);
+        }
+      } else {
+        const designById = new Map(design.map((r) => [r.id, r]));
+        const scanById = new Map(scan.map((r) => [r.id, r]));
+        for (const rec of records) {
+          if (!showVerdicts.includes(rec.verdict)) continue;
+          const key = rec.designId ?? rec.scanId ?? "";
+          const color = VERDICT_COLOR[rec.verdict];
+          let group: THREE.Group | null = null;
+          if (rec.verdict === "missing" && rec.designId) {
+            const d = designById.get(rec.designId);
+            if (d) group = rebarGroup(d, color, 0.45); // 설계 위치 고스트
+          } else if (rec.scanId) {
+            const sc = scanById.get(rec.scanId);
+            if (sc) group = rebarGroup(sc, color, 1);
+          }
+          if (group) {
+            s.overlay.add(group);
+            s.keyed.set(key, group);
+          }
         }
       }
     }
 
-    // 설계모델이 없거나 숨겨진 상태에서(frameSource:"scan" 등) 오버레이가 비어 있다가
-    // 뭔가 생기는 "전환" 시점에만 카메라를 그 위로 옮긴다. 설계 고스트가 보이는 동안은
-    // 그쪽 프레이밍 이펙트가 이미 담당하므로 건드리지 않고, 매 렌더마다(예: 요구간격
-    // 입력 중 재구성) 다시 잡지도 않으며, 사용자가 카메라를 이미 조작했으면 존중한다.
-    const isEmpty = s.overlay.children.length === 0;
+    // 재프레이밍은 noDesign(frameSource:"scan") 결과에서만 한다 — 설계 경로는 이미
+    // "설계 고스트" 이펙트가 프레이밍을 담당하고, 분석 성공 시 편차 지도를 보여주려고
+    // 고스트를 끄는 것뿐인데(showContour) 그때마다 카메라까지 옮기면 검증된 기존
+    // 동작이 바뀐다(리뷰 지적 — 설계 경로에서 카메라가 튀는 회귀).
+    //
+    // "비었다"의 기준은 지금 실제로 그려진 오버레이(showScanBars 영향을 받는다)가
+    // 아니라 원본 데이터(scan)로 잡는다 — 시공 철근 칩을 껐다 켜는 것만으로 데이터가
+    // 없다가 생기는 게 아니므로, 칩 토글에 재프레이밍이 반응하면 안 된다(리뷰 지적).
+    // noDesign이 아닐 때는 dataEmpty를 강제로 true로 묶어 둔다 — 설계 모드로 분석하는
+    // 동안 이 ref가 "이미 안 비었음"으로 굳어버리면, 나중에 체크박스를 켜고 scan 모드로
+    // 전환했을 때(진짜 비었다가 채워지는 전환) 재프레이밍이 못 잡히기 때문이다.
+    const dataEmpty = !noDesign || scan.length === 0;
     const designVisible = !!designObject && showDesign;
-    if (!isEmpty && overlayWasEmptyRef.current && !designVisible && !userMovedRef.current) {
+    if (noDesign && !dataEmpty && dataWasEmptyRef.current && !designVisible && !userMovedRef.current) {
       const box = new THREE.Box3().setFromObject(s.overlay);
       if (!box.isEmpty()) {
         const size = box.getSize(new THREE.Vector3());
@@ -319,7 +325,7 @@ export default function AnalysisViewer({
         s.controls.update();
       }
     }
-    overlayWasEmptyRef.current = isEmpty;
+    dataWasEmptyRef.current = dataEmpty;
   }, [records, design, scan, showVerdicts, showScanBars, noDesign, designObject, showDesign]);
 
   // ---- 컨투어 평면 ----

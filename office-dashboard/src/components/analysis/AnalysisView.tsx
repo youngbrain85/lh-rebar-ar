@@ -16,7 +16,7 @@ import {
 import { barMidpoint } from "../../lib/analysis/geom";
 import { rejudgeRecords } from "../../lib/analysis/judge";
 import { assignLabels } from "../../lib/analysis/label";
-import { requiredSpacingMatchesMode, type AnalysisOutput } from "../../lib/analysis/pipeline";
+import { frameOfMethod, usableRequiredSpacing, type AnalysisOutput } from "../../lib/analysis/pipeline";
 import { parseRebarsJson } from "../../lib/analysis/rebarsSchema";
 import { computeSpacing, spacingGroupKey, suggestRequiredSpacing } from "../../lib/analysis/spacing";
 import type {
@@ -88,17 +88,25 @@ export default function AnalysisView({
   const [contourMax, setContourMax] = useState<number>(DEFAULT_CONTOUR_MAX.spacing);
   /** 그룹별 요구 간격 (mm). key = `${direction}/${layer}` */
   const [requiredSpacing, setRequiredSpacing] = useState<Record<string, number>>({});
+  /**
+   * requiredSpacing의 키(directionId/layer)가 어느 프레임에서 나온 것인지. directionId는
+   * 프레임(design 대 scan)마다 다시 배정되므로, 값과 프레임을 항상 짝으로 들고 있다가
+   * "지금 분석을 돌릴 프레임"과 일치할 때만 쓴다(아래 analyze()). 마운트 시점 체크박스
+   * 잔상과 비교하는 방식은 쓰지 않는다 — 그 잔상 자체가 이 값을 만든 프레임과 무관하다.
+   */
+  const [requiredSpacingFrame, setRequiredSpacingFrame] = useState<"design" | "scan">("design");
 
   // ---- 입력 데이터 로드: 설계 + 스캔 + 기존 결과 ----
   useEffect(() => {
     let cancelled = false;
-    // 이 마운트 시점에 체크박스가 어떤 상태였는지 — SiteAnalysis가 스캔을 넘나들어도
-    // 죽지 않는 상태라(AnalysisView는 스캔마다 새로 마운트된다), 다른 스캔에서 넘어온
-    // 잔상일 수 있다. 아래에서 이 스캔 고유의 저장 결과로 다시 맞추지만(대칭 동기화),
-    // requiredSpacingMm을 들일지 판단할 땐 "지금 이 순간의 모드"만 근거로 삼는다 —
-    // 동기화가 반영되는 타이밍에 기대지 않는, 독립적인 방어선이다.
-    const modeAtMount = noDesignMode;
     (async () => {
+      // 이 로드가 끝날 때 체크박스를 어디로 맞출지 — null이면 손대지 않는다(저장된
+      // 결과가 아예 없어서 판단할 근거가 없는 경우. 이때는 SiteAnalysis가 스캔을 열 때
+      // 이미 false로 리셋해 둔 값을 그대로 믿는다). 저장된 유효한 결과를 찾으면 그
+      // 결과의 실제 method로, 로드 도중 예외가 나면(전형적으로 저장된 결과 JSON이
+      // 깨졌을 때) 안전한 기본값 false로 확정한다 — rebars는 예외 이전에 이미 로드돼
+      // 분석은 계속 가능한데 체크박스만 이전 상태의 잔상을 들고 있으면 안 된다.
+      let nextNoDesignMode: boolean | null = null;
       try {
         const [design, scanRes, prevRes] = await Promise.all([
           loadDesign(arId),
@@ -115,8 +123,6 @@ export default function AnalysisView({
         setDesignRebars(design.rebars);
         setScanRebars(parsed.data.rebars);
         setMeshUrl(scanRes.mesh_url ?? null);
-        // 저장된 결과의 정합 방식 — 없으면 null(= "설계모델 없이" 아님, 기본 취급).
-        let method: "auto" | "manual" | "none" | null = null;
         if (prevRes.ok) {
           const prev: AnalysisResult = await prevRes.json();
           if (
@@ -127,53 +133,44 @@ export default function AnalysisView({
           ) {
             setSavedRecords(prev.rebars);
             setTolerance(prev.toleranceMm);
-            method = prev.registration?.method ?? null;
+            const method = prev.registration?.method ?? null;
             setSavedMethod(method);
             if (prev.requiredSpacingMm) {
               // 그룹 키(`${directionId}/${layer}`)는 프레임에 종속적이다 — directionId(v1/h1/…)는
               // 프레임(design 대 scan)마다 다시 배정되므로, 같은 키가 물리적으로 다른 그룹을
-              // 가리킬 수 있다. 저장 당시의 방식(method)과 지금 이 화면의 모드가 다르면
-              // 그대로 들이지 않는다 — 들이면 "슬래브 프레임에서 저장한 h1/h2 간격이
-              // 스캔 프레임의 h1(=원래 v1)에 그대로 적용"되는 식으로 +100mm급 편차가
-              // 조작된다(리뷰에서 실측). 어긋나면 비워 그룹 실측 중앙값 폴백(편차 0)으로
-              // 안전하게 떨어뜨린다.
-              if (requiredSpacingMatchesMode(method, modeAtMount)) {
-                // computeSpacing의 `requiredMm[key] ?? med`는 `??`라 0을 유효값으로 통과시킨다.
-                // 저장된 0(또는 음수·비정상값)을 그대로 로드하면 해당 그룹이 최상위 색으로
-                // 포화된 채 analyze()의 merge(`{ ...suggested, ...requiredSpacing }`)를 거쳐
-                // 재분석 후에도 되살아난다 — 입력창의 유효성 검사(finite && > 0)를 로드
-                // 시점에도 똑같이 적용해야 이 구멍이 막힌다.
-                const cleaned = Object.fromEntries(
-                  Object.entries(prev.requiredSpacingMm).filter(
-                    ([, v]) => typeof v === "number" && Number.isFinite(v) && v > 0,
-                  ),
-                );
-                setRequiredSpacing(cleaned);
-              }
+              // 가리킬 수 있다. "지금 모드"와 비교해 거부하는 대신, 이 값을 만든 프레임을
+              // 저장된 결과 자신의 method로부터 복원해(frameOfMethod) 값과 함께 짝지어
+              // 둔다 — 실제로 쓸지는 analyze()가 "그 순간의" 프레임과 비교해 결정한다.
+              const cleaned = Object.fromEntries(
+                Object.entries(prev.requiredSpacingMm).filter(
+                  ([, v]) => typeof v === "number" && Number.isFinite(v) && v > 0,
+                ),
+              );
+              setRequiredSpacing(cleaned);
+              setRequiredSpacingFrame(frameOfMethod(method));
             }
             if (Array.isArray(prev.registration?.matrix) && prev.registration.matrix.length === 16) {
               setSavedMatrix(prev.registration.matrix);
             }
+            // 유효한 저장 결과를 찾았을 때만 체크박스를 그 결과의 실제 방식에 맞춘다.
+            nextNoDesignMode = method === "none";
           }
         }
-        // 체크박스를 이 스캔의 실제 저장 상태로 다시 맞춘다(대칭 동기화) — 저장된 결과가
-        // 없으면 기본값(false)으로, "none"이면 켜진 상태로. 한쪽으로만 동기화하면(켜질
-        // 때만) 이전 스캔에서 켜둔 채로 다음 스캔으로 넘어와 버린다 — SiteAnalysis는
-        // 스캔을 넘나들어도 죽지 않는 상태라 이 값만 유일하게 잔상이 남는다.
-        if (!cancelled) onNoDesignModeChange(method === "none");
       } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+        if (!cancelled) {
+          setError(e instanceof Error ? e.message : String(e));
+          nextNoDesignMode = false;
+        }
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+          if (nextNoDesignMode !== null) onNoDesignModeChange(nextNoDesignMode);
+        }
       }
     })();
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- noDesignMode는 의도적으로
-    // deps에서 뺐다: modeAtMount는 "이 스캔을 열 때의 스냅샷"이어야 하므로, 체크박스를
-    // 만졌다고 이 로드 이펙트가 다시 도는(그래서 스캔·설계를 다시 fetch하는) 건 원치
-    // 않는다. onNoDesignModeChange는 useState 세터라 identity가 항상 안정적이라 안전하다.
   }, [arId, scan.site_id, scan.scan_id, onNoDesignModeChange]);
 
   // ---- 분석 실행 ----
@@ -182,11 +179,19 @@ export default function AnalysisView({
       if (!designRebars || !scanRebars) return;
       setError(null);
       setSaveWarning(null);
+      // 지금 이 실행이 어느 프레임인지, 그리고 state의 requiredSpacing이 그 프레임에서
+      // 나온 게 맞는지 — 맞을 때만 쓴다. 어긋나면(예: 설계 모드에서 만든 값이 아직
+      // state에 남아 있는데 스캔 모드로 막 전환한 직후) 빈 값에서 시작해 그룹 실측
+      // 중앙값 폴백에 맡긴다. 이 판단을 "체크박스가 지금 몇 번째로 바뀌었는지"가 아니라
+      // requiredSpacing 자신에 붙여둔 프레임표(requiredSpacingFrame)로 하므로, 마운트
+      // 타이밍이나 다른 스캔에서 넘어온 체크박스 잔상과 무관하게 항상 맞는 답을 낸다.
+      const currentFrame: "design" | "scan" = noDesignMode ? "scan" : "design";
+      const usable = usableRequiredSpacing(requiredSpacing, requiredSpacingFrame, currentFrame);
       try {
         const out = await run({
           design: designRebars, scan: scanRebars,
           toleranceMm: tolerance, up: [0, 1, 0], manualInit,
-          requiredSpacingMm: requiredSpacing,
+          requiredSpacingMm: usable,
           // 발주처 13개 현장 전부 built-in 설계모델이 없다(전부 ar_type:"visual", site 1은
           // 아예 바닥판) — 그 프레임을 벽 분석에 쓰면 간격이 무의미해진다. 체크박스가 켜져
           // 있으면 설계를 아예 읽지 않고 스캔 자신의 형상에서 프레임을 뽑는다.
@@ -210,10 +215,13 @@ export default function AnalysisView({
           // 경고가 X/Y/Z/요 수동 입력을 요구하는 바로 그 순간 참조할 설계 형상이 화면에서
           // 사라진다.
           if (showContour) setShowDesign(false);
-          // 그룹 실측 중앙값으로 기본값을 제안하되, 사용자가 이미 입력해 둔 값은 덮지 않는다
+          // 그룹 실측 중앙값으로 기본값을 제안하되, 사용자가 이미 입력해 둔(같은 프레임의)
+          // 값은 덮지 않는다. merged는 이 실행(currentFrame)에서 나온 값이므로 그 프레임과
+          // 짝지어 다시 저장한다 — 다음 analyze() 호출도 같은 판단을 할 수 있게.
           const suggested = suggestRequiredSpacing(out.spacing.groups);
-          const merged = { ...suggested, ...requiredSpacing };
+          const merged = { ...suggested, ...usable };
           setRequiredSpacing(merged);
+          setRequiredSpacingFrame(currentFrame);
           const result: AnalysisResult = {
             version: 2, scanId: scan.scan_id, arId,
             registration: {
@@ -247,7 +255,7 @@ export default function AnalysisView({
     },
     [
       designRebars, scanRebars, tolerance, run, scan.site_id, scan.scan_id, arId,
-      requiredSpacing, showContour, noDesignMode,
+      requiredSpacing, requiredSpacingFrame, showContour, noDesignMode,
     ],
   );
 
@@ -261,10 +269,13 @@ export default function AnalysisView({
   // (`${directionId}/${layer}`)의 directionId(v1/h1/…)는 프레임마다 다시 배정되므로,
   // 설계 모드에서 입력/제안된 값이 스캔 모드로 넘어가면(또는 그 반대로) 같은 키가
   // 물리적으로 다른 그룹을 가리켜 조작된 편차(+100mm급)가 표에 찍힌다 — 체크박스를
-  // 어느 방향으로 넘기든(진입/이탈 둘 다) 무조건 비운다. 이후 analyze()가 그룹
-  // 실측 중앙값으로 다시 제안해 채운다.
+  // 어느 방향으로 넘기든(진입/이탈 둘 다) 화면(요구 간격 입력칸)에 남은 값을 비운다.
+  // analyze()의 프레임표 비교가 실제 분석 호출에서는 이미 이 값을 걸러내지만, 그
+  // 이펙트가 끝나기 전까지 입력칸이 다른 프레임의 숫자를 계속 보여주는 건 그 자체로
+  // 혼란스럽다 — 여기서 즉시 지우고 새 프레임표를 붙여 둔다.
   useEffect(() => {
     setRequiredSpacing({});
+    setRequiredSpacingFrame(noDesignMode ? "scan" : "design");
   }, [noDesignMode]);
 
   // 체크박스가 켜지면 이 화면을 "간격 편차만" 모드로 고정한다 — 위치 편차는 설계 없이는
