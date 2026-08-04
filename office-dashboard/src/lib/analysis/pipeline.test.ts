@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { mat4Identity } from "./geom";
+import { mat4FromRotTrans, mat4Identity } from "./geom";
 import { runAnalysis } from "./pipeline";
 import { spacingGroupKey } from "./spacing";
-import { jitterRebars, makeWallGrid, offsetRebar, rigidMat4, transformRebars } from "./testFixtures";
+import {
+  jitterRebars, makeDiagonalFamilyGrid, makeWallGrid, offsetRebar, rigidMat4, transformRebars,
+} from "./testFixtures";
 import type { Rebar } from "./types";
 
 const UP: [number, number, number] = [0, 1, 0];
@@ -109,3 +111,130 @@ describe("runAnalysis: 방향군과 간격", () => {
     expect(g.deviationMm).toBeCloseTo(g.spacingMm - 100, 6);
   });
 });
+
+describe("runAnalysis: frameSource=\"scan\" — 설계모델 없이 분석", () => {
+  // 벽(makeWallGrid, XY평면·법선 Z)을 x축 기준 90° 돌려 "바닥판형" 설계를 만든다.
+  // rigidMat4는 up(Y)축 요(yaw) 회전만 지원해 이 회전을 표현할 수 없으므로,
+  // mat4FromRotTrans에 직접 행:  [1,0,0 / 0,0,-1 / 0,1,0] (x축 +90°)을 넣어 만든다.
+  // 결과: (x,y,z) → (x,-z,y) — 법선이 up(Y)과 나란해져 실제 바닥판(발주처 site 1)과
+  // 같은 성질(벽과 다른 배향)을 갖는다.
+  const slabRotation = mat4FromRotTrans([1, 0, 0, 0, 0, -1, 0, 1, 0], [0, 0, 0]);
+  const makeSlabDesign = () => transformRebars(makeWallGrid(), slabRotation);
+  const UP: [number, number, number] = [0, 1, 0];
+
+  it("핵심 회귀: 같은 스캔이면 설계가 벽이든 바닥판이든 간격 결과가 완전히 같다", () => {
+    const scan = makeWallGrid().map((r, i) => ({ ...r, id: `s${i}` }));
+    const wallDesign = makeWallGrid();
+    const slabDesign = makeSlabDesign();
+
+    const withWallDesign = runAnalysis({
+      design: wallDesign, scan, toleranceMm: 10, up: UP, frameSource: "scan",
+    });
+    const withSlabDesign = runAnalysis({
+      design: slabDesign, scan, toleranceMm: 10, up: UP, frameSource: "scan",
+    });
+
+    // 프레임(법선·방향군)과 그로부터 파생되는 간격이 설계와 완전히 무관해야 한다.
+    expect(withSlabDesign.wallNormal).toEqual(withWallDesign.wallNormal);
+    expect(withSlabDesign.families).toEqual(withWallDesign.families);
+    expect(withSlabDesign.spacing).toEqual(withWallDesign.spacing);
+    expect(withSlabDesign.plane).toEqual(withWallDesign.plane);
+
+    // 대조군: "design" 모드(기본값)에서는 같은 두 설계가 서로 다른 프레임을 만들어
+    // spacing 결과가 달라진다 — 이 대조가 없으면 위 일치가 "그냥 뭘 해도 같은 값이
+    // 나오는" 우연인지, frameSource:"scan"이 실제로 설계 의존성을 끊었기 때문인지
+    // 구별할 수 없다. ★ 여기서 "달라진다"는 간격 **중앙값 자체**(300mm×6, 400mm×4,
+    // 두 레이어)가 아니다 — 그건 이 픽스처에서 둘 다 동일하다. 달라지는 건 그
+    // 값이 매겨지는 **방향군 id와 순서**다(설계가 벽이면 v1/h1, 슬래브면 h1/h2로
+    // 재배정되고 그룹 나열 순서도 바뀐다) — 프레임(법선·방향군)이 설계를 따라가고
+    // 있다는 증거이자, toEqual이 실제로 잡아내는 차이다.
+    const designModeWall = runAnalysis({ design: wallDesign, scan, toleranceMm: 10, up: UP });
+    const designModeSlab = runAnalysis({ design: slabDesign, scan, toleranceMm: 10, up: UP });
+    expect(designModeSlab.spacing).not.toEqual(designModeWall.spacing);
+  });
+
+  it("design: [] 이어도 예외 없이 동작한다", () => {
+    const scan = makeWallGrid().map((r, i) => ({ ...r, id: `s${i}` }));
+    const out = runAnalysis({ design: [], scan, toleranceMm: 10, up: UP, frameSource: "scan" });
+    expect(out.registration.failed).toBe(false);
+    expect(out.spacing.gaps.length).toBeGreaterThan(0);
+    // ★ 위 두 단언만으로는 이 테스트가 겨냥하는 뮤테이션(설계를 읽으려다 실패)을 못 잡는다.
+    //   design:[]이어도 estimateWallNormal([])은 던지지 않고 [0,0,1]을 반환하고,
+    //   deriveDirectionFamilies([], up)은 []을 반환해 assignFamily가 전부 "v1"으로
+    //   몰아넣으며, computeSpacing의 axisOf 폴백([0,1,0])이 그래도 구간을 만들어내
+    //   gaps.length > 0이 우연히 통과한다. 방향군이 스캔에서 실제로 뽑혔는지(빈 배열이
+    //   아닌지)를 못박아야 "설계를 읽지 않고도 진짜로 동작한다"는 근거가 된다.
+    expect(out.families.length).toBeGreaterThan(0);
+  });
+
+  it("정합은 시도조차 하지 않는다 — method: \"none\", failed: false, 항등행렬", () => {
+    const scan = makeWallGrid().map((r, i) => ({ ...r, id: `s${i}` }));
+    const out = runAnalysis({
+      design: makeSlabDesign(), scan, toleranceMm: 10, up: UP, frameSource: "scan",
+    });
+    expect(out.registration.method).toBe("none");
+    expect(out.registration.failed).toBe(false);
+    expect(out.registration.matrix).toEqual(mat4Identity());
+  });
+
+  it("매칭·판정 결과는 지어내지 않는다 — rebars/designClassified 빈 배열, summary 0", () => {
+    const scan = makeWallGrid().map((r, i) => ({ ...r, id: `s${i}` }));
+    const out = runAnalysis({
+      design: makeWallGrid(), scan, toleranceMm: 10, up: UP, frameSource: "scan",
+    });
+    expect(out.rebars).toEqual([]);
+    expect(out.designClassified).toEqual([]);
+    expect(out.summary).toEqual({
+      designCount: 0, scanCount: 0, matched: 0, missing: 0, extra: 0,
+      outOfTolerance: 0, deviationMm: null, byGroup: [],
+    });
+  });
+
+  it("방향군은 설계가 아니라 스캔에서 뽑는다 — 설계에 없는 45° 사재도 스캔에 있으면 잡힌다", () => {
+    // 설계는 세로/가로 두 군뿐인 평범한 벽, 스캔에만 45° 사재군이 섞여 있다.
+    const design = makeWallGrid();
+    const scan = makeDiagonalFamilyGrid().map((r, i) => ({ ...r, id: `s${i}` }));
+    const out = runAnalysis({ design, scan, toleranceMm: 10, up: UP, frameSource: "scan" });
+    expect(out.families.some((f) => f.label.startsWith("사재"))).toBe(true);
+  });
+});
+
+// 리뷰 지적 #1(CRITICAL): AnalysisView.tsx가 저장된 requiredSpacingMm을 프레임이 바뀐
+// 채로 재사용해 조작된 편차(+100mm급)를 만들어낸 버그. 근본 원인은 spacingGroupKey의
+// directionId가 프레임에 종속적이라는 사실이고, 그 사실을 여기서 엔진 레벨로 고정해
+// 둔다 — UI가 requiredSpacingMm을 그 값이 나온 프레임과 짝지어 들고 있어야 하는
+// 이유의 근거다(frameOfMethod).
+describe("그룹 키는 프레임에 종속적이다 — requiredSpacingMm이 프레임을 넘어 살아남으면 안 되는 이유", () => {
+  const slabRotation = mat4FromRotTrans([1, 0, 0, 0, 0, -1, 0, 1, 0], [0, 0, 0]);
+  const UP: [number, number, number] = [0, 1, 0];
+
+  it("같은 스캔·같은 물리적 간격 분포인데 설계가 벽이냐 슬래브냐에 따라 그룹 키(direction id)가 달라진다", () => {
+    const scan = makeWallGrid().map((r, i) => ({ ...r, id: `s${i}` }));
+    const wallDesign = makeWallGrid();
+    const slabDesign = transformRebars(makeWallGrid(), slabRotation);
+
+    const withWall = runAnalysis({ design: wallDesign, scan, toleranceMm: 10, up: UP });
+    const withSlab = runAnalysis({ design: slabDesign, scan, toleranceMm: 10, up: UP });
+
+    const wallKeys = new Set(
+      withWall.spacing.groups.map((g) => spacingGroupKey(g.direction, g.layer)),
+    );
+    const slabKeys = new Set(
+      withSlab.spacing.groups.map((g) => spacingGroupKey(g.direction, g.layer)),
+    );
+    // 우연한 이름 충돌이 아니라 체계적으로 다시 배정된다는 근거: 키 집합 자체가 다르다.
+    expect(slabKeys).not.toEqual(wallKeys);
+    // 하지만 물리적으로는 같은 간격 분포다(중앙값 다중집합이 동일) — "그룹이 사라진 게
+    // 아니라 이름표만 바뀌었다"는 것을 보여준다. 이게 바로 위험한 이유: 저장된
+    // requiredSpacingMm의 키를 다른 프레임에서 그대로 조회하면, 존재하지 않는 그룹으로
+    // 조용히 실패하는 게 아니라 **다른 물리적 그룹의 값을 우연히 맞혀버릴 수 있다**
+    // (리뷰가 실측한 h1/inner 충돌이 정확히 이 경우다).
+    const wallMedians = withWall.spacing.groups.map((g) => g.medianMm).sort((a, b) => a - b);
+    const slabMedians = withSlab.spacing.groups.map((g) => g.medianMm).sort((a, b) => a - b);
+    expect(slabMedians).toEqual(wallMedians);
+  });
+});
+
+// frameOfMethod / usableRequiredSpacing과, "요구 간격은 같은 프레임에서 재분석해도
+// 유지된다" 통합 테스트는 requiredSpacingState.test.ts로 옮겼다 — 그 로직이 사는
+// 곳(requiredSpacingState.ts)과 같은 파일에서 테스트해야 "출처가 두 곳"이 되지 않는다.

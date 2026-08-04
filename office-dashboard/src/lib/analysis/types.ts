@@ -35,7 +35,10 @@ export type ClassifiedRebar = Rebar & {
 export interface RegistrationResult {
   matrix: Mat4;
   rmsMm: number;
-  method: "auto" | "manual";
+  /** "none" = frameSource:"scan" 모드 — 정합을 아예 시도하지 않고 항등행렬을 반환했다.
+   *  "auto"/"manual"과 구분해야 저장된 결과에서 "정합을 건너뛴 것"과 "정합에 성공한 것"이
+   *  섞이지 않는다. */
+  method: "auto" | "manual" | "none";
 }
 
 export interface MatchPair {

@@ -30,6 +30,11 @@ export default function SiteAnalysis({ siteId }: { siteId: number }) {
   const [arId, setArId] = useState<string | null>(null);
   const [open, setOpen] = useState<ScanMeta | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // 「설계모델 없이 분석」체크박스 — AnalysisView 안에 있지만, 여기서도 알아야
+  // 모델 선택 화면의 ar_type 경고("비교 기준은 설계모델이어야…")를 억제할 수 있다.
+  // 그 경고는 이 화면(스캔을 아직 열지 않은 상태)에서 뜨는데, 발주처 13개 현장 전부
+  // built-in 모델이 없어 이 모드를 쓰기로 한 사용자에게는 매번 뜨는 게 노이즈다.
+  const [noDesignMode, setNoDesignMode] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -84,7 +89,10 @@ export default function SiteAnalysis({ siteId }: { siteId: number }) {
         </Group>
         <Box style={{ flex: 1, minHeight: 0, display: "flex" }}>
           {/* 모델을 바꾸면 로드·분석 상태를 새로 시작한다 */}
-          <AnalysisView key={arId} scan={open} arId={arId} />
+          <AnalysisView
+            key={arId} scan={open} arId={arId}
+            noDesignMode={noDesignMode} onNoDesignModeChange={setNoDesignMode}
+          />
         </Box>
       </Stack>
     );
@@ -104,14 +112,27 @@ export default function SiteAnalysis({ siteId }: { siteId: number }) {
           />
         </Group>
       )}
-      {selectedModel && selectedModel.ar_type !== "built-in" && (
+      {/* 설계모델 없이 분석하기로 한 사용자에게는 무의미한 경고다 — 그 모드는 애초에
+          이 모델을 비교 기준으로 쓰지 않는다. */}
+      {selectedModel && selectedModel.ar_type !== "built-in" && !noDesignMode && (
         <Alert color="yellow" variant="light">
           선택한 모델의 종류가 <b>{selectedModel.ar_type}</b>입니다. 시공 분석의 비교 기준은
           설계모델(built-in)이어야 합니다 — 스캔에서 생성된 모델을 고르면 전부 미시공·도면 외로
-          나옵니다.
+          나옵니다. 설계모델이 없거나 다른 구조물이면 분석 화면의 「설계모델 없이 분석」
+          체크박스로 간격 편차만 잴 수 있습니다.
         </Alert>
       )}
-      <ScanList siteId={siteId} arId={arId} onOpen={(scan) => setOpen(scan)} />
+      <ScanList
+        siteId={siteId} arId={arId}
+        onOpen={(scan) => {
+          // 체크박스는 "스캔"에 속한 상태다 — 모델(arId)이 아니라. 여기서(스캔을 여는
+          // 시점에) false로 리셋해 두면, 이 스캔에 저장된 결과가 있을 때 AnalysisView의
+          // 로드 이펙트가 그 결과의 실제 method로 다시 맞춘다(finding 2 참조). 리셋을
+          // 안 하면 이전에 열었던 스캔에서 켜 둔 체크박스가 새 스캔에 잔상으로 남는다.
+          setNoDesignMode(false);
+          setOpen(scan);
+        }}
+      />
     </Stack>
   );
 }

@@ -5,10 +5,10 @@
 // 흐름: 설계 USDZ + rebars.json 로드 → 메인스레드 분석 → 뷰어/카드/테이블 표시.
 // 기존 결과가 저장돼 있으면 자동 로드하고, 재분석 버튼으로 다시 돌릴 수 있다.
 import {
-  Alert, Badge, Box, Button, Card, Center, Chip, Group, Loader, NumberInput,
+  Alert, Badge, Box, Button, Card, Center, Checkbox, Chip, Group, Loader, NumberInput,
   Paper, ScrollArea, SegmentedControl, SimpleGrid, Slider, Stack, Table, Text,
 } from "@mantine/core";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
 import type * as THREE from "three";
 import {
   buildContourField, CONTOUR_COLORS, contourColor, DEFAULT_CONTOUR_MAX, type ContourSample,
@@ -18,6 +18,10 @@ import { rejudgeRecords } from "../../lib/analysis/judge";
 import { assignLabels } from "../../lib/analysis/label";
 import type { AnalysisOutput } from "../../lib/analysis/pipeline";
 import { parseRebarsJson } from "../../lib/analysis/rebarsSchema";
+import {
+  frameOfMethod, INITIAL_REQUIRED_SPACING_STATE, requiredSpacingReducer, usableRequiredSpacing,
+  type FrameSource,
+} from "../../lib/analysis/requiredSpacingState";
 import { computeSpacing, spacingGroupKey, suggestRequiredSpacing } from "../../lib/analysis/spacing";
 import type {
   AnalysisResult, ClassifiedRebar, Mat4, Rebar, RebarRecord, Verdict,
@@ -50,7 +54,16 @@ function nudgeMat4(tx: number, ty: number, tz: number, yawDeg: number): Mat4 {
   return [c, 0, -s, 0, 0, 1, 0, 0, s, 0, c, 0, tx, ty, tz, 1];
 }
 
-export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: string }) {
+export default function AnalysisView({
+  scan, arId, noDesignMode, onNoDesignModeChange,
+}: {
+  scan: ScanMeta;
+  arId: string;
+  /** 「설계모델 없이 분석」 체크박스 상태 — SiteAnalysis가 소유한다(모델 선택 화면의
+   *  ar_type 경고를 이 상태로 같이 억제해야 하므로, 여기서 로컬 state로 들고 있지 않는다) */
+  noDesignMode: boolean;
+  onNoDesignModeChange: (v: boolean) => void;
+}) {
   const { run, stage } = useAnalysis();
   const [designObject, setDesignObject] = useState<THREE.Object3D | null>(null);
   const [designRebars, setDesignRebars] = useState<Rebar[] | null>(null);
@@ -59,6 +72,9 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
   const [output, setOutput] = useState<AnalysisOutput | null>(null);
   const [savedRecords, setSavedRecords] = useState<RebarRecord[] | null>(null);
   const [savedMatrix, setSavedMatrix] = useState<number[] | null>(null);
+  /** 저장된 결과의 정합 방식 — "none"이면 그 결과는 frameSource:"scan"으로 만들어졌다는
+   *  뜻이라, output이 아직 없는 "저장본만 로드된" 화면에서도 판정 위젯을 숨겨야 한다 */
+  const [savedMethod, setSavedMethod] = useState<"auto" | "manual" | "none" | null>(null);
   const [tolerance, setTolerance] = useState(10);
   const [error, setError] = useState<string | null>(null);
   const [saveWarning, setSaveWarning] = useState<string | null>(null);
@@ -74,13 +90,32 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
   const [metric, setMetric] = useState<"spacing" | "position">("spacing");
   const [showContour, setShowContour] = useState(true);
   const [contourMax, setContourMax] = useState<number>(DEFAULT_CONTOUR_MAX.spacing);
-  /** 그룹별 요구 간격 (mm). key = `${direction}/${layer}` */
-  const [requiredSpacing, setRequiredSpacing] = useState<Record<string, number>>({});
+  /**
+   * 그룹별 요구 간격(mm, key = `${directionId}/${layer}`)과 그 값이 나온 프레임을
+   * 하나의 상태로 묶어 리듀서로 관리한다 — directionId는 프레임(design 대 scan)마다
+   * 다시 배정되므로, 값과 프레임이 짝이 안 맞으면 다른 물리적 그룹의 값을 갖다 쓰게
+   * 된다. "사용자가 체크박스를 눌렀다"(userToggledFrame)와 "로드가 저장된 결과의
+   * method에 맞춰 체크박스를 동기화했다"(loadedResult)는 결과적으로 noDesignMode를
+   * 똑같이 바꾸지만 리듀서에는 서로 다른 이벤트로 도착한다 — 이 구분이 없으면(예:
+   * noDesignMode 하나만 보는 useEffect) 로드 직후의 동기화가 "사용자가 눌렀다"로
+   * 오인되어 방금 로드한, 프레임이 이미 맞는 값을 지워버린다(3라운드째 반복된 버그).
+   * 자세한 사정은 requiredSpacingState.ts 상단 주석 참조.
+   */
+  const [requiredSpacingState, dispatchRequiredSpacing] = useReducer(
+    requiredSpacingReducer, INITIAL_REQUIRED_SPACING_STATE,
+  );
 
   // ---- 입력 데이터 로드: 설계 + 스캔 + 기존 결과 ----
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      // 이 로드가 끝날 때 체크박스를 어디로 맞출지 — null이면 손대지 않는다(저장된
+      // 결과가 아예 없어서 판단할 근거가 없는 경우. 이때는 SiteAnalysis가 스캔을 열 때
+      // 이미 false로 리셋해 둔 값을 그대로 믿는다). 저장된 유효한 결과를 찾으면 그
+      // 결과의 실제 method로, 로드 도중 예외가 나면(전형적으로 저장된 결과 JSON이
+      // 깨졌을 때) 안전한 기본값 false로 확정한다 — rebars는 예외 이전에 이미 로드돼
+      // 분석은 계속 가능한데 체크박스만 이전 상태의 잔상을 들고 있으면 안 된다.
+      let nextNoDesignMode: boolean | null = null;
       try {
         const [design, scanRes, prevRes] = await Promise.all([
           loadDesign(arId),
@@ -107,34 +142,35 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
           ) {
             setSavedRecords(prev.rebars);
             setTolerance(prev.toleranceMm);
-            if (prev.requiredSpacingMm) {
-              // computeSpacing의 `requiredMm[key] ?? med`는 `??`라 0을 유효값으로 통과시킨다.
-              // 저장된 0(또는 음수·비정상값)을 그대로 로드하면 해당 그룹이 최상위 색으로
-              // 포화된 채 analyze()의 merge(`{ ...suggested, ...requiredSpacing }`)를 거쳐
-              // 재분석 후에도 되살아난다 — 입력창의 유효성 검사(finite && > 0)를 로드
-              // 시점에도 똑같이 적용해야 이 구멍이 막힌다.
-              const cleaned = Object.fromEntries(
-                Object.entries(prev.requiredSpacingMm).filter(
-                  ([, v]) => typeof v === "number" && Number.isFinite(v) && v > 0,
-                ),
-              );
-              setRequiredSpacing(cleaned);
-            }
+            const method = prev.registration?.method ?? null;
+            setSavedMethod(method);
+            // loadedResult는 "지금 모드"와 비교하지 않는다 — 저장된 결과 자신의 method가
+            // map의 프레임을 확정하므로 항상 짝이 맞는다. requiredSpacingMm이 아예 없어도
+            // 디스패치해 프레임만이라도 맞춰 둔다(다음 analyze()가 참조할 기준이 된다).
+            dispatchRequiredSpacing({ type: "loadedResult", method, map: prev.requiredSpacingMm ?? {} });
             if (Array.isArray(prev.registration?.matrix) && prev.registration.matrix.length === 16) {
               setSavedMatrix(prev.registration.matrix);
             }
+            // 유효한 저장 결과를 찾았을 때만 체크박스를 그 결과의 실제 방식에 맞춘다.
+            nextNoDesignMode = method === "none";
           }
         }
       } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+        if (!cancelled) {
+          setError(e instanceof Error ? e.message : String(e));
+          nextNoDesignMode = false;
+        }
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+          if (nextNoDesignMode !== null) onNoDesignModeChange(nextNoDesignMode);
+        }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [arId, scan.site_id, scan.scan_id]);
+  }, [arId, scan.site_id, scan.scan_id, onNoDesignModeChange]);
 
   // ---- 분석 실행 ----
   const analyze = useCallback(
@@ -142,17 +178,30 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
       if (!designRebars || !scanRebars) return;
       setError(null);
       setSaveWarning(null);
+      // 지금 이 실행이 어느 프레임인지, 그리고 requiredSpacingState의 map이 그
+      // 프레임에서 나온 게 맞는지 — 맞을 때만 쓴다. 어긋나면(예: 설계 모드에서 만든
+      // 값이 아직 state에 남아 있는데 스캔 모드로 막 전환한 직후) 빈 값에서 시작해
+      // 그룹 실측 중앙값 폴백에 맡긴다.
+      const currentFrame: FrameSource = noDesignMode ? "scan" : "design";
+      const usable = usableRequiredSpacing(requiredSpacingState, currentFrame);
       try {
         const out = await run({
           design: designRebars, scan: scanRebars,
           toleranceMm: tolerance, up: [0, 1, 0], manualInit,
-          requiredSpacingMm: requiredSpacing,
+          requiredSpacingMm: usable,
+          // 발주처 13개 현장 전부 built-in 설계모델이 없다(전부 ar_type:"visual", site 1은
+          // 아예 바닥판) — 그 프레임을 벽 분석에 쓰면 간격이 무의미해진다. 체크박스가 켜져
+          // 있으면 설계를 아예 읽지 않고 스캔 자신의 형상에서 프레임을 뽑는다.
+          frameSource: noDesignMode ? "scan" : undefined,
         });
         // 표시용 간략명 부여 (세로-내측-1 …) — 저장 결과에도 포함되도록 출력을 교체.
         // 방향군은 파이프라인이 이미 뽑아 out.families로 내보낸다 — 다시 뽑지 않는다.
+        // frameSource:"scan"에서는 designClassified가 빈 배열이라 assignLabels가 만들
+        // 라벨도 없다 — rebars 자체가 []이므로 그대로 통과해도 안전하다.
         out.rebars = assignLabels(out.rebars, out.designClassified, out.scanTransformed, out.families);
         setOutput(out);
         setSavedRecords(null);
+        setSavedMethod(null);
         if (!out.registration.failed) {
           // 편차 지도 칩은 기본 체크 상태로 렌더되므로, 사용자가 직접 눌러야만 발동하는
           // onChange 가드로는 "분석 실행 → 지도가 뜨는" 기본 경로에서 한 번도 실행되지
@@ -163,10 +212,16 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
           // 경고가 X/Y/Z/요 수동 입력을 요구하는 바로 그 순간 참조할 설계 형상이 화면에서
           // 사라진다.
           if (showContour) setShowDesign(false);
-          // 그룹 실측 중앙값으로 기본값을 제안하되, 사용자가 이미 입력해 둔 값은 덮지 않는다
-          const suggested = suggestRequiredSpacing(out.spacing.groups);
-          const merged = { ...suggested, ...requiredSpacing };
-          setRequiredSpacing(merged);
+          // 그룹 실측 중앙값으로 기본값을 제안하되, 사용자가 이미 입력해 둔(같은 프레임의)
+          // 값은 덮지 않는다. 리듀서를 직접 호출해(순수 함수라 부작용 없음) 저장 페이로드에
+          // 쓸 merged를 동기적으로 얻고, 같은 이벤트를 dispatch해 실제 state도 갱신한다 —
+          // 두 번 계산하지 않고 한 번의 진실을 공유한다.
+          const analyzedEvent = {
+            type: "analyzed" as const, frame: currentFrame,
+            suggested: suggestRequiredSpacing(out.spacing.groups),
+          };
+          const merged = requiredSpacingReducer(requiredSpacingState, analyzedEvent).map;
+          dispatchRequiredSpacing(analyzedEvent);
           const result: AnalysisResult = {
             version: 2, scanId: scan.scan_id, arId,
             registration: {
@@ -200,7 +255,7 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
     },
     [
       designRebars, scanRebars, tolerance, run, scan.site_id, scan.scan_id, arId,
-      requiredSpacing, showContour,
+      requiredSpacingState, showContour, noDesignMode,
     ],
   );
 
@@ -209,6 +264,39 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
     setMetric(m);
     setContourMax(DEFAULT_CONTOUR_MAX[m]);
   }, []);
+
+  // (3차 리뷰, BLOCKING) 여기 있던 "noDesignMode가 바뀌면 requiredSpacing을 비운다"
+  // useEffect는 삭제했다 — 그 자리가 버그의 근원이었다. noDesignMode는 사용자가
+  // 체크박스를 눌러도, 로드가 저장된 결과의 method에 맞춰 동기화해도 똑같이 바뀌는데,
+  // useEffect는 그 결과값만 보므로 둘을 구분할 수 없었다. 로드 직후의 동기화도
+  // "사용자가 눌렀다"로 오인해, 방금 loadedResult로 들여온(프레임이 이미 맞는) 값을
+  // 지워버렸다 — 발주처 전 현장이 method:"none"으로 저장되는 이 브랜치의 주력
+  // 경로에서 항상 벌어졌다. 이제 requiredSpacingState는 userToggledFrame과
+  // loadedResult를 서로 다른 이벤트로 받으므로(체크박스 onChange가 전자를, 로드
+  // 이펙트가 후자를 디스패치한다) 이 클래스의 버그 자체가 구조적으로 불가능하다.
+
+  // 체크박스가 켜지면 이 화면을 "간격 편차만" 모드로 고정한다 — 위치 편차는 설계 없이는
+  // 정의되지 않고(비교 대상이 없다), 정합되지 않은 설계 고스트는 노이즈일 뿐이다.
+  useEffect(() => {
+    if (!noDesignMode) return;
+    setMetric("spacing");
+    setContourMax(DEFAULT_CONTOUR_MAX.spacing);
+    setShowDesign(false);
+  }, [noDesignMode]);
+
+  // 지금 화면에 나와 있는 결과(라이브 우선, 없으면 저장본)가 frameSource:"scan"으로
+  // 만들어졌는가 — 판정 위젯(통계 카드·필터 칩·범례·정합 배지)을 숨길지는 체크박스가
+  // 아니라 이 값으로 결정한다. 체크박스는 "다음 분석을 어떻게 돌릴지"고, 이 값은
+  // "지금 보이는 결과가 실제로 무엇으로 만들어졌는지"라 저장본만 로드된 화면(체크박스는
+  // 아직 사용자 조작 전 기본값일 수 있다)에서도 0을 판정 결과처럼 보여주지 않는다.
+  const resultIsNoDesign = output
+    ? output.registration.method === "none"
+    : savedMethod === "none";
+  // metric 자체는 체크박스 on 시점에만 "spacing"으로 되돌린다(위 이펙트) — 그 사이
+  // 사용자가 다시 만졌거나 이전 설계 모드 결과가 남아 있는 과도기 상태를 렌더링에서까지
+  // 신뢰하지 않도록, 실제로 화면에 나온 결과가 설계 없는 결과일 땐 렌더 시점에도
+  // "간격 편차"로 강제한다. 위치 편차는 애초에 이 결과에 존재하지 않는다.
+  const effectiveMetric = resultIsNoDesign ? "spacing" : metric;
 
   // ---- 표시 데이터: 라이브 출력 우선, 없으면 저장본. 슬라이더는 재판정만 ----
   const view = useMemo(() => {
@@ -224,8 +312,16 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
    */
   const spacing = useMemo(() => {
     if (!output || output.registration.failed) return null;
-    return computeSpacing(output.scanTransformed, output.families, output.wallNormal, requiredSpacing);
-  }, [output, requiredSpacing]);
+    // 여기서는 usableRequiredSpacing으로 프레임을 다시 확인하지 않는다 — 체크박스만
+    // 토글된 경우(아직 재분석 전) requiredSpacingState.frame은 output보다 앞서
+    // 바뀌지만, 그 순간 map은 이미 비어 있으므로({}, userToggledFrame이 지운다)
+    // 폴백(중앙값)으로 안전하게 떨어진다. map이 비어 있지 않은 채로 프레임만
+    // 어긋나는 경우는 사용자가 그 사이에 입력칸을 편집했을 때뿐인데, 그 경로는
+    // 아래 requiredSpacingStale이 입력칸 자체를 잠가 막는다.
+    return computeSpacing(
+      output.scanTransformed, output.families, output.wallNormal, requiredSpacingState.map,
+    );
+  }, [output, requiredSpacingState]);
 
   /** 위치 편차 지표의 표본: 시공 철근 중점 + 그 철근의 편차 */
   const positionSamples = useMemo<ContourSample[]>(() => {
@@ -251,10 +347,10 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
   const contour = useMemo(() => {
     // 정합 실패 시 scanTransformed는 엉뚱한 자리라 간격·평면이 무의미하다 — 지도를 끈다
     if (!output || !showContour || output.registration.failed) return null;
-    const samples: ContourSample[] = metric === "spacing" ? spacing?.gaps ?? [] : positionSamples;
+    const samples: ContourSample[] = effectiveMetric === "spacing" ? spacing?.gaps ?? [] : positionSamples;
     if (samples.length === 0) return null;
     return buildContourField(samples, output.plane);
-  }, [output, showContour, metric, spacing, positionSamples]);
+  }, [output, showContour, effectiveMetric, spacing, positionSamples]);
 
   /** 요구 간격 입력 폼에 띄울 그룹 목록 */
   const spacingGroups = spacing?.groups.filter((g) => g.count > 0) ?? [];
@@ -262,6 +358,17 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
     (id: string) => output?.families.find((f) => f.id === id)?.label ?? id,
     [output],
   );
+
+  // spacingGroups(요구 간격 입력칸의 키)는 output에서 나온다 — 그 프레임은
+  // output.registration.method가 확정한다. 체크박스를 토글하면 requiredSpacingState
+  // .frame은 즉시 바뀌지만 output은 다음 재분석까지 이전 프레임 그대로다. 그 사이
+  // (토글 후 재분석 전) 이 표에 입력하면, 표의 키는 옛 프레임인데 값은 새 프레임의
+  // map으로 들어가 같은 키가 물리적으로 다른 그룹을 가리키는 조작된 편차가 나온다
+  // (리뷰 실측: 슬래브 프레임의 h1/inner가 스캔 프레임의 h1/inner와 다른 그룹).
+  // 두 프레임이 어긋나 있으면 입력칸을 잠근다 — 지금 보이는 표는 "다른 결과"이므로
+  // 의미 있게 편집할 수 없다는 뜻이다.
+  const outputFrame: FrameSource | null = output ? frameOfMethod(output.registration.method) : null;
+  const requiredSpacingStale = outputFrame !== null && outputFrame !== requiredSpacingState.frame;
 
   if (loading)
     return (
@@ -280,6 +387,7 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
           design={output?.designClassified ?? EMPTY_CLASSIFIED}
           scan={output?.scanTransformed ?? EMPTY_CLASSIFIED}
           showVerdicts={showVerdicts}
+          noDesign={resultIsNoDesign}
           showDesign={showDesign}
           showScanBars={showScanBars}
           showMesh={showMesh}
@@ -321,20 +429,24 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
               </Chip>
             )}
           </Group>
-          {/* 판정별 필터 (시공 철근을 켰을 때만 의미 있음) */}
-          <Group gap={6}>
-            {ALL_VERDICTS.map((v) => (
-              <Chip
-                key={v} size="xs" color={VERDICT_BADGE[v]} disabled={!showScanBars}
-                checked={showVerdicts.includes(v)}
-                onChange={(on) =>
-                  setShowVerdicts((prev) => (on ? [...prev, v] : prev.filter((x) => x !== v)))
-                }
-              >
-                {VERDICT_LABEL[v]}
-              </Chip>
-            ))}
-          </Group>
+          {/* 판정별 필터 (시공 철근을 켰을 때만 의미 있음) — 설계모델 없이 분석한
+              결과는 판정 자체가 없다(전부 verdict:undefined인 빈 배열)이므로 필터가
+              고를 게 없다. */}
+          {!resultIsNoDesign && (
+            <Group gap={6}>
+              {ALL_VERDICTS.map((v) => (
+                <Chip
+                  key={v} size="xs" color={VERDICT_BADGE[v]} disabled={!showScanBars}
+                  checked={showVerdicts.includes(v)}
+                  onChange={(on) =>
+                    setShowVerdicts((prev) => (on ? [...prev, v] : prev.filter((x) => x !== v)))
+                  }
+                >
+                  {VERDICT_LABEL[v]}
+                </Chip>
+              ))}
+            </Group>
+          )}
         </Stack>
 
         {/* 색상 범례 */}
@@ -347,7 +459,7 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
           {contour && (
             <Box mb={8}>
               <Text size="xs" fw={600} mb={3}>
-                {metric === "spacing" ? "간격 편차" : "위치 편차"} (mm)
+                {effectiveMetric === "spacing" ? "간격 편차" : "위치 편차"} (mm)
               </Text>
               <Group gap={0} wrap="nowrap">
                 {CONTOUR_COLORS.map((c) => (
@@ -361,10 +473,21 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
             </Box>
           )}
           <Stack gap={3}>
-            <LegendRow color={LAYER_COLOR.pass} label="정상 (허용오차 이내)" />
-            <LegendRow color={LAYER_COLOR.out_of_tolerance} label="허용초과" />
-            <LegendRow color={LAYER_COLOR.missing} label="미시공 (설계 위치)" />
-            <LegendRow color={LAYER_COLOR.extra} label="도면 외 (설계에 없음)" />
+            {/* 판정 색은 설계 대비 매칭 결과다 — 설계모델 없이 분석한 결과에는 애초에
+                존재하지 않으므로 범례에서도 뺀다(색이 안 쓰이는데 범례만 남으면 판정이
+                된 것처럼 보인다). */}
+            {resultIsNoDesign ? (
+              // 판정색이 아닌 중립색(AnalysisViewer가 실제로 그리는 색과 동일 출처)임을
+              // 범례에서도 밝힌다 — 정상/도면외 같은 판정 팔레트와 헷갈리지 않게.
+              <LegendRow color={LAYER_COLOR.asBuilt} label="시공 철근 (판정 없음)" />
+            ) : (
+              <>
+                <LegendRow color={LAYER_COLOR.pass} label="정상 (허용오차 이내)" />
+                <LegendRow color={LAYER_COLOR.out_of_tolerance} label="허용초과" />
+                <LegendRow color={LAYER_COLOR.missing} label="미시공 (설계 위치)" />
+                <LegendRow color={LAYER_COLOR.extra} label="도면 외 (설계에 없음)" />
+              </>
+            )}
             <LegendRow color={LAYER_COLOR.design} label="설계모델" />
             {meshUrl && <LegendRow color={LAYER_COLOR.scanMesh} label="스캔 메시" />}
           </Stack>
@@ -385,11 +508,38 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
           </Button>
           {output && (
             <Badge variant="light" color={output.registration.failed ? "red" : "teal"}>
-              정합 RMS {output.registration.rmsMm.toFixed(1)}mm ·{" "}
-              {output.registration.method === "auto" ? "자동" : "수동"}
+              {output.registration.method === "none"
+                ? "정합 생략 (설계모델 미사용)"
+                : `정합 RMS ${output.registration.rmsMm.toFixed(1)}mm · ${
+                    output.registration.method === "auto" ? "자동" : "수동"
+                  }`}
             </Badge>
           )}
         </Group>
+
+        {/* 발주처 13개 현장 전부 built-in 설계모델이 없다 — 있는 모델을 정합·분류 기준으로
+            쓰면(site 1은 아예 바닥판) 간격이 무의미해진다. 체크하면 설계를 아예 읽지 않고
+            스캔 자신의 형상에서 벽면 법선·방향군을 뽑아 간격 편차만 잰다. */}
+        <Checkbox
+          size="xs"
+          label="설계모델 없이 분석 (간격 편차만)"
+          checked={noDesignMode}
+          // 분석이 도는 동안 잠근다 — 요구 간격 입력칸과 같은 이유다(stage != null).
+          // 토글하면 noDesignMode(다음 프레임)와 analyze()가 이미 스냅샷한 requiredSpacingState
+          // (이번 실행 프레임)가 그 순간부터 어긋난다: merged는 옛 프레임·옛 map으로 클로저에
+          // 고정된 채 계산되는데 dispatch는 최신 state에 적용되므로 usable이 빠진 채 PUT되고,
+          // noDesignMode ⟺ requiredSpacingState.frame 불변식도 그 사이 잠깐 깨진다. 결과 자체는
+          // 항상 프레임 일관됨을 유지해 조작된 편차로 이어지진 않지만(다음 재분석이 정리한다),
+          // 같은 이음매에서 다섯 번째로 문제가 났던 자리라 아예 만질 수 없게 막는다.
+          disabled={stage != null}
+          onChange={(e) => {
+            const checked = e.currentTarget.checked;
+            onNoDesignModeChange(checked);
+            // 사용자가 직접 눌렀다 — userToggledFrame. 로드 이펙트가 같은 noDesignMode를
+            // 동기화할 때는(loadedResult) 이 핸들러를 거치지 않으므로 서로 섞이지 않는다.
+            dispatchRequiredSpacing({ type: "userToggledFrame", frame: checked ? "scan" : "design" });
+          }}
+        />
 
         {error && <Alert color="red">{error}</Alert>}
         {saveWarning && (
@@ -423,28 +573,39 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
 
         {view && (
           <>
-            <SimpleGrid cols={3} spacing={6}>
-              <StatCard label="설계 철근" value={`${view.summary.designCount}`} />
-              <StatCard label="시공 철근" value={`${view.summary.scanCount}`} />
-              <StatCard label="매칭" value={`${view.summary.matched}`} />
-              <StatCard label="미시공" value={`${view.summary.missing}`} tone="red" />
-              <StatCard label="허용초과" value={`${view.summary.outOfTolerance}`} tone="orange" />
-              <StatCard label="도면 외" value={`${view.summary.extra}`} tone="blue" />
-            </SimpleGrid>
-            {view.summary.deviationMm && (
-              <Text size="xs" c="dimmed">
-                편차 평균 {view.summary.deviationMm.mean.toFixed(1)}mm · 최대{" "}
-                {view.summary.deviationMm.max.toFixed(1)}mm
-              </Text>
+            {/* 설계모델 없이 분석한 결과는 이 통계가 전부 0이다 — "미시공 0건"처럼
+                실제 판정 결과로 보이면 안 되므로 카드 자체를 숨긴다(값을 0으로 채워
+                내보내는 것과 화면에 안 보여주는 것은 다르다 — 저장은 그대로 0으로
+                되고, 여기서는 그 0을 "찾아낸 사실"처럼 제시하지 않는다). */}
+            {!resultIsNoDesign && (
+              <>
+                <SimpleGrid cols={3} spacing={6}>
+                  <StatCard label="설계 철근" value={`${view.summary.designCount}`} />
+                  <StatCard label="시공 철근" value={`${view.summary.scanCount}`} />
+                  <StatCard label="매칭" value={`${view.summary.matched}`} />
+                  <StatCard label="미시공" value={`${view.summary.missing}`} tone="red" />
+                  <StatCard label="허용초과" value={`${view.summary.outOfTolerance}`} tone="orange" />
+                  <StatCard label="도면 외" value={`${view.summary.extra}`} tone="blue" />
+                </SimpleGrid>
+                {view.summary.deviationMm && (
+                  <Text size="xs" c="dimmed">
+                    편차 평균 {view.summary.deviationMm.mean.toFixed(1)}mm · 최대{" "}
+                    {view.summary.deviationMm.max.toFixed(1)}mm
+                  </Text>
+                )}
+              </>
             )}
 
-            <SegmentedControl
-              size="xs" fullWidth value={metric} onChange={changeMetric}
-              data={[
-                { value: "spacing", label: "간격 편차" },
-                { value: "position", label: "위치 편차" },
-              ]}
-            />
+            {/* 위치 편차는 설계 대비 편차라 설계모델 없이는 정의되지 않는다 */}
+            {!resultIsNoDesign && (
+              <SegmentedControl
+                size="xs" fullWidth value={metric} onChange={changeMetric}
+                data={[
+                  { value: "spacing", label: "간격 편차" },
+                  { value: "position", label: "위치 편차" },
+                ]}
+              />
+            )}
 
             <Box>
               <Text size="xs" fw={600} mb={2}>
@@ -457,12 +618,18 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
               </Text>
             </Box>
 
-            {metric === "spacing" ? (
+            {effectiveMetric === "spacing" ? (
               <Box>
                 <Text size="xs" fw={600} mb={4}>요구 간격 (mm)</Text>
                 <Text size="xs" c="dimmed" mb={4}>
                   순간격 20mm 미만 구간은 이음으로 보고 측정에서 제외됩니다.
                 </Text>
+                {requiredSpacingStale && (
+                  <Text size="xs" c="orange" mb={4}>
+                    체크박스를 바꾼 뒤 아직 재분석하지 않았습니다 — 지금 보이는 표는 이전
+                    결과라 입력칸을 잠급니다. 「재분석」을 눌러야 다시 고칠 수 있습니다.
+                  </Text>
+                )}
                 <Stack gap={4}>
                   {spacingGroups.map((g) => {
                     const key = spacingGroupKey(g.direction, g.layer);
@@ -474,19 +641,26 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
                         </Text>
                         <NumberInput
                           size="xs" w={92} step={5} min={10}
-                          value={requiredSpacing[key] ?? Math.round(g.medianMm / 5) * 5}
+                          // requiredSpacingStale: 표(옛 프레임)와 map(새 프레임)이 어긋난
+                          // 동안은 편집을 막는다(위 주석 참조). stage != null: 분석이 도는
+                          // 동안은(패널은 계속 조작 가능하다) 편집을 막아, analyze()가
+                          // 클로저로 스냅샷한 usable/merged와 화면에 보이는 state가
+                          // 갈라지는 걸 애초에 막는다 — 조정보다 경합을 없애는 쪽을 골랐다.
+                          disabled={requiredSpacingStale || stage != null}
+                          value={requiredSpacingState.map[key] ?? Math.round(g.medianMm / 5) * 5}
                           onChange={(v) => {
                             const n = Number(v);
-                            setRequiredSpacing((prev) => {
-                              // 빈칸·0·음수는 "지정 안 함"으로 되돌려 중앙값 폴백을 살린다.
-                              // 0을 저장하면 computeSpacing의 `?? med`가 0을 유효값으로 받아
-                              // (?? 는 0을 통과시킨다) 그룹 전체가 최상위 색으로 포화된다.
-                              if (!Number.isFinite(n) || n <= 0) {
-                                const next = { ...prev };
-                                delete next[key];
-                                return next;
-                              }
-                              return { ...prev, [key]: n };
+                            // 빈칸·0·음수는 "지정 안 함"(null)으로 보내 중앙값 폴백을 살린다.
+                            // 0을 저장하면 computeSpacing의 `?? med`가 0을 유효값으로 받아
+                            // (?? 는 0을 통과시킨다) 그룹 전체가 최상위 색으로 포화된다.
+                            const value = Number.isFinite(n) && n > 0 ? n : null;
+                            // frame은 이 입력칸이 속한 표를 만든 output의 프레임이다 —
+                            // requiredSpacingStale이 이미 입력을 막아 두 값이 어긋나는
+                            // 경우가 없어야 하지만, 리듀서에도 같은 가드를 둬(userEdited
+                            // 케이스) UI가 놓치더라도 조작된 편차가 새어 들어가지 않게
+                            // 이중으로 막는다.
+                            dispatchRequiredSpacing({
+                              type: "userEdited", key, value, frame: outputFrame ?? requiredSpacingState.frame,
                             });
                           }}
                         />
@@ -505,13 +679,13 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
 
             <Paper withBorder radius="md" style={{ flex: 1, minHeight: 0 }}>
               <ScrollArea h="100%">
-                {metric === "spacing" && !spacing ? (
+                {effectiveMetric === "spacing" && !spacing ? (
                   <Text size="xs" c="dimmed" p="sm">
                     {output?.registration.failed
                       ? "정합에 실패해 간격을 신뢰할 수 없습니다 — 수동 초기정합으로 다시 분석하세요."
                       : "간격은 저장되지 않습니다 — 「재분석」을 눌러야 표시됩니다."}
                   </Text>
-                ) : metric === "spacing" ? (
+                ) : effectiveMetric === "spacing" ? (
                   <Table striped highlightOnHover stickyHeader verticalSpacing={4} fz="xs">
                     <Table.Thead>
                       <Table.Tr>

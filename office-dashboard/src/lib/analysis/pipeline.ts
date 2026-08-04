@@ -2,7 +2,7 @@
 import { classifyRebars, estimateWallNormal } from "./classify";
 import { fitWallPlane, type WallPlane } from "./contour";
 import { deriveDirectionFamilies } from "./direction";
-import { applyMat4 } from "./geom";
+import { applyMat4, mat4Identity } from "./geom";
 import { judge } from "./judge";
 import { matchRebars } from "./match";
 import { registerScan } from "./registration";
@@ -19,10 +19,16 @@ export interface AnalysisInput {
   manualInit?: Mat4;
   /** 그룹별 요구 간격 (mm). 없으면 그룹 실측 중앙값을 기준으로 삼는다 */
   requiredSpacingMm?: Record<string, number>;
+  /**
+   * 분석 프레임(벽면 법선·방향군)을 어디서 뽑을지. 기본 "design".
+   * "scan"이면 설계모델을 아예 읽지 않는다 — 발주처 현장의 설계모델이 built-in이 아니거나
+   * (전 현장이 그렇다), 아예 다른 구조물(바닥판 등)이라 프레임을 오염시킬 때 쓴다.
+   */
+  frameSource?: "design" | "scan";
 }
 
 export interface AnalysisOutput {
-  registration: { matrix: Mat4; rmsMm: number; method: "auto" | "manual"; failed: boolean };
+  registration: { matrix: Mat4; rmsMm: number; method: "auto" | "manual" | "none"; failed: boolean };
   rebars: RebarRecord[];
   summary: AnalysisSummary;
   designClassified: ClassifiedRebar[];
@@ -35,7 +41,55 @@ export interface AnalysisOutput {
   plane: WallPlane;
 }
 
+/**
+ * summary가 전부 0/null인 빈 요약 — frameSource:"scan"에서 매칭·판정을 지어내지 않기 위한 값.
+ * ★ 반드시 호출마다 새로 만들 것. 모듈 상수 하나를 공유해서 반환하면 그 안의 `byGroup`
+ * 배열까지 여러 결과가 같은 참조를 공유하게 되어, 한쪽 결과를 다루는 코드가(예: 향후
+ * byGroup에 항목을 얹는 식으로) 제자리에서 건드리면 무관한 다른 분석 결과까지 조용히
+ * 오염된다 — AnalysisView.tsx가 이미 반환된 output 객체를 그대로 변경하는 관례
+ * (`out.rebars = …`)가 있는 코드베이스라 이 위험이 이론적인 얘기가 아니다.
+ */
+function emptySummary(): AnalysisSummary {
+  return {
+    designCount: 0, scanCount: 0, matched: 0, missing: 0, extra: 0,
+    outOfTolerance: 0, deviationMm: null, byGroup: [],
+  };
+}
+
+/**
+ * frameSource:"scan" — 스캔 자신의 형상에서 벽면 법선·방향군을 뽑고, 설계모델은 절대
+ * 읽지 않는다. 정합도 하지 않는다: design이 원래 없거나(발주처 현장 전부) 다른 구조물이면
+ * (site 1의 바닥판) design 기준 정합·분류·매칭이 전부 무의미해지기 때문이다.
+ * 간격 측정 자체는 강체변환에 불변이므로, "정합을 생략"하는 것만으로는 안 되고
+ * 프레임(법선·방향군)의 원천을 design → scan으로 바꿔야 실제로 문제가 고쳐진다.
+ */
+function runScanFrameAnalysis(input: AnalysisInput): AnalysisOutput {
+  const registration = { matrix: mat4Identity(), rmsMm: 0, method: "none" as const, failed: false };
+  const wallNormal = estimateWallNormal(input.scan);
+  const families = deriveDirectionFamilies(input.scan, input.up);
+  const scanTransformed = classifyRebars(input.scan, input.up, wallNormal, families);
+  const spacing = computeSpacing(scanTransformed, families, wallNormal, input.requiredSpacingMm ?? {});
+  const plane = fitWallPlane(scanTransformed, wallNormal, input.up);
+  return {
+    registration,
+    rebars: [],
+    summary: emptySummary(),
+    designClassified: [],
+    scanTransformed,
+    families,
+    wallNormal,
+    spacing,
+    plane,
+  };
+}
+
+// frameOfMethod / usableRequiredSpacing은 requiredSpacingState.ts로 옮겼다 —
+// requiredSpacing과 그 프레임을 하나의 상태로 묶어 관리하는 리듀서(AnalysisView.tsx가
+// useReducer로 쓴다)와 같은 곳에 두어야 "출처가 두 곳"이 되지 않는다.
+
 export function runAnalysis(input: AnalysisInput): AnalysisOutput {
+  if (input.frameSource === "scan") return runScanFrameAnalysis(input);
+
   const registration = registerScan(input.scan, input.design, input.manualInit);
   const transformed: Rebar[] = input.scan.map((r) => ({
     ...r,
