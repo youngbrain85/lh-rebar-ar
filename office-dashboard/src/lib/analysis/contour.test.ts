@@ -52,6 +52,11 @@ describe("contourColor", () => {
   it("NaN 편차에도 색을 돌려준다 (undefined 반환 금지)", () => {
     expect(contourColor(NaN, 50)).toBe(CONTOUR_COLORS[0]);
   });
+  it("무한대 편차는 NaN과 달리 마지막 단계다", () => {
+    // isFinite로 한꺼번에 막으면 무한히 큰 편차가 가장 안전한 파란색으로 칠해진다
+    expect(contourBand(Infinity, 50)).toBe(4);
+    expect(contourBand(-Infinity, 50)).toBe(4);
+  });
 });
 
 describe("fitWallPlane", () => {
@@ -121,6 +126,14 @@ describe("buildContourField", () => {
     expect(row[3]).toBeCloseTo(30, 6);       // 두 표본에서 등거리
     expect(row[5]).toBeCloseTo(57.6923, 3);
     expect(row[6]).toBeCloseTo(60, 6);
+  });
+
+  it("values의 0행은 v=0쪽 — 평면 원점이 있는 아래 모서리다", () => {
+    // Task 6이 이 배열을 그대로 DataTexture로 올린다. 행 순서가 뒤집히면 지도가
+    // 상하 반전되는데, 나머지 필드 테스트는 전부 상하 대칭이라 하나도 걸리지 않는다.
+    const f = buildContourField([gap(0.3, 0.1, 40)], plane, { cols: 2, rows: 2, radiusM: 0.5 });
+    expect(f.values.slice(0, 2).some((v) => v != null)).toBe(true);  // 아래 행 = 표본이 있는 쪽
+    expect(f.values.slice(2, 4).every((v) => v == null)).toBe(true); // 위 행 = 반경 밖
   });
 
   it("표본이 없으면 전부 null", () => {

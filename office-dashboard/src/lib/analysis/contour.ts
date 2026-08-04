@@ -14,7 +14,9 @@ export function contourBand(absMm: number, maxMm: number): number {
   if (!(maxMm > 0)) return CONTOUR_COLORS.length - 1;
   // NaN 편차로는 단계를 고를 수 없다. 막지 않으면 Math.floor(NaN)이 클램프를 통과해
   // CONTOUR_COLORS[NaN] → undefined가 되고, 반환 타입이 string인데 undefined가 나간다.
-  if (!Number.isFinite(absMm)) return 0;
+  // ★ isFinite로 막지 말 것 — ±Infinity까지 함께 걸려 "무한히 큰 편차"가 가장 안전한
+  //   파란색으로 칠해진다. 무한대는 아래 계산이 그대로 마지막 단계로 보낸다.
+  if (Number.isNaN(absMm)) return 0;
   const t = Math.abs(absMm) / maxMm;
   const band = Math.floor(t * CONTOUR_COLORS.length);
   return Math.max(0, Math.min(CONTOUR_COLORS.length - 1, band));
