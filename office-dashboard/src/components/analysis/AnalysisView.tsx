@@ -10,6 +10,7 @@ import {
 } from "@mantine/core";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type * as THREE from "three";
+import { DEFAULT_CONTOUR_MAX } from "../../lib/analysis/contour";
 import { rejudgeRecords } from "../../lib/analysis/judge";
 import { assignLabels } from "../../lib/analysis/label";
 import type { AnalysisOutput } from "../../lib/analysis/pipeline";
@@ -193,6 +194,8 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
           showMesh={showMesh}
           meshUrl={meshUrl}
           registrationMatrix={output?.registration.failed ? null : output?.registration.matrix ?? savedMatrix}
+          contour={null}
+          contourMax={DEFAULT_CONTOUR_MAX.spacing}
           focusKey={focusKey}
         />
 

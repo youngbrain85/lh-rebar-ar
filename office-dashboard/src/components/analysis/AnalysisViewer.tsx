@@ -5,6 +5,7 @@ import { useEffect, useRef } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { contourColor, type ContourField } from "../../lib/analysis/contour";
 import type { ClassifiedRebar, RebarRecord, Verdict } from "../../lib/analysis/types";
 
 /** 뷰어 레이어 색 — 범례(AnalysisView)와 공유하는 단일 출처 */
@@ -39,6 +40,10 @@ export interface ViewerProps {
   meshUrl: string | null;
   /** 정합 행렬(column-major 16) — 스캔 메시는 스캔 좌표라 이 행렬로 설계 좌표에 겹친다 */
   registrationMatrix: number[] | null;
+  /** 간격/위치 편차 보간 지도. null이면 그리지 않는다 */
+  contour: ContourField | null;
+  /** 컨투어 색 상한 (mm) */
+  contourMax: number;
   focusKey: string | null;
 }
 
@@ -49,8 +54,13 @@ function disposeChildren(group: THREE.Group) {
     if (mesh.isMesh) {
       mesh.geometry?.dispose();
       const m = mesh.material;
-      if (Array.isArray(m)) m.forEach((x) => x.dispose());
-      else m?.dispose();
+      const materials = Array.isArray(m) ? m : m ? [m] : [];
+      for (const mat of materials) {
+        // map(텍스처)은 머티리얼 dispose로 함께 해제되지 않는다 — 컨투어 평면의
+        // DataTexture처럼 매 재렌더마다 새로 만드는 경우 여기서 안 지우면 GPU 메모리가 샌다.
+        (mat as THREE.MeshBasicMaterial).map?.dispose();
+        mat.dispose();
+      }
     }
   });
   group.clear();
@@ -81,9 +91,54 @@ function rebarGroup(r: ClassifiedRebar, color: number, opacity: number): THREE.G
   return g;
 }
 
+/**
+ * 편차 보간 지도를 벽면 평면에 붙인다.
+ * 텍스처 필터를 NearestFilter로 두어 색이 부드럽게 섞이지 않고 **계단 띠**로 보이게 한다
+ * (등고선처럼 읽혀야 어느 구간이 어느 단계인지 눈으로 셀 수 있다).
+ */
+function contourMesh(field: ContourField, maxMm: number): THREE.Mesh {
+  const { cols, rows, plane, values } = field;
+  const data = new Uint8Array(cols * rows * 4);
+  const c = new THREE.Color();
+  for (let i = 0; i < cols * rows; i++) {
+    const v = values[i];
+    if (v == null) continue; // alpha 0 = 표본이 없는 자리는 비운다
+    c.set(contourColor(v, maxMm));
+    data[i * 4] = Math.round(c.r * 255);
+    data[i * 4 + 1] = Math.round(c.g * 255);
+    data[i * 4 + 2] = Math.round(c.b * 255);
+    data[i * 4 + 3] = 205;
+  }
+  const tex = new THREE.DataTexture(data, cols, rows, THREE.RGBAFormat);
+  tex.magFilter = THREE.NearestFilter;
+  tex.minFilter = THREE.NearestFilter;
+  tex.needsUpdate = true;
+  // ★ 행을 뒤집지 말 것. DataTexture는 flipY가 기본 false(일반 Texture는 true)이고
+  //   PlaneGeometry는 아래 모서리가 v=0이다. field.values의 0행도 v=0(평면 origin)
+  //   쪽이므로 그대로 올리면 방향이 맞는다. 뒤집으면 지도가 상하 반전된다.
+
+  const geo = new THREE.PlaneGeometry(Math.max(plane.width, 1e-3), Math.max(plane.height, 1e-3));
+  const mat = new THREE.MeshBasicMaterial({
+    map: tex, transparent: true, side: THREE.DoubleSide, depthWrite: false,
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  const u = new THREE.Vector3(...plane.axisU);
+  const v = new THREE.Vector3(...plane.axisV);
+  const n = new THREE.Vector3().crossVectors(u, v).normalize();
+  mesh.setRotationFromMatrix(new THREE.Matrix4().makeBasis(u, v, n));
+  // PlaneGeometry는 중심 기준이라 origin(좌하단)에서 절반씩 이동시킨다
+  mesh.position.set(
+    plane.origin[0] + u.x * plane.width / 2 + v.x * plane.height / 2,
+    plane.origin[1] + u.y * plane.width / 2 + v.y * plane.height / 2,
+    plane.origin[2] + u.z * plane.width / 2 + v.z * plane.height / 2,
+  );
+  mesh.renderOrder = -1; // 철근 원통보다 먼저 그려 뒤로 깔린다
+  return mesh;
+}
+
 export default function AnalysisViewer({
   designObject, records, design, scan, showVerdicts, showDesign, showScanBars,
-  showMesh, meshUrl, registrationMatrix, focusKey,
+  showMesh, meshUrl, registrationMatrix, contour, contourMax, focusKey,
 }: ViewerProps) {
   const mountRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<{
@@ -92,6 +147,7 @@ export default function AnalysisViewer({
     controls: OrbitControls;
     overlay: THREE.Group;
     meshLayer: THREE.Group;
+    contourLayer: THREE.Group;
     keyed: Map<string, THREE.Group>;
   } | null>(null);
 
@@ -115,8 +171,9 @@ export default function AnalysisViewer({
     scene.add(new THREE.GridHelper(10, 20, 0x9db2d4, 0xdde5f2));
     const overlay = new THREE.Group();
     const meshLayer = new THREE.Group();
-    scene.add(overlay, meshLayer);
-    sceneRef.current = { scene, camera, controls, overlay, meshLayer, keyed: new Map() };
+    const contourLayer = new THREE.Group();
+    scene.add(overlay, meshLayer, contourLayer);
+    sceneRef.current = { scene, camera, controls, overlay, meshLayer, contourLayer, keyed: new Map() };
 
     const resize = () => {
       const w = mount.clientWidth, h = mount.clientHeight;
@@ -203,6 +260,18 @@ export default function AnalysisViewer({
       }
     }
   }, [records, design, scan, showVerdicts, showScanBars]);
+
+  // ---- 컨투어 평면 ----
+  // 정합이 실패했을 때는 호출부(Task 7)가 contour에 null을 넘긴다. 실패한 정합의
+  // scanTransformed는 엉뚱한 자리에 놓인 점군이라 그 위에서 잰 간격·평면은 부정확한
+  // 게 아니라 무의미하다 — 확신에 찬 쓰레기 지도를 그리느니 아무것도 안 그리는 게 맞다.
+  useEffect(() => {
+    const s = sceneRef.current;
+    if (!s) return;
+    disposeChildren(s.contourLayer);
+    if (!contour) return;
+    s.contourLayer.add(contourMesh(contour, contourMax));
+  }, [contour, contourMax]);
 
   // ---- 스캔 메시 토글 ----
   useEffect(() => {
