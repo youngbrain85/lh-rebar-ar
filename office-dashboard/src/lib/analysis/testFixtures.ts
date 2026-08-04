@@ -100,9 +100,14 @@ export function offsetRebar(rebars: Rebar[], id: string, offset: Vec3): Rebar[] 
 
 /**
  * 헌치가 있는 경사 옹벽 — 발주처 Mock-up 모사.
- *  · 주철근: 약 8° 기운 세로근 6본 (벽이 위로 갈수록 얇아진다)
+ *  · 주철근: 약 8°(atan(0.28/2) = 7.97°) 기운 세로근 6본 (벽이 위로 갈수록 얇아진다)
  *  · 배력근: 수평근 4본
  *  · 헌치 사재: 저판부 45° 대각근 3본
+ *
+ * 전 철근이 z=0 한 평면 위에 있다 — 단일 레이어(outer), 완전 평면 픽스처다.
+ * 설계 좌표 기준 방향군별 간격 중앙값(runAnalysis 결과, haunch.test.ts로 고정):
+ *  · 세로(v1) 198.07mm(5구간) · 가로(h1) 500mm(3구간) · 사재(d1) 176.78mm(2구간)
+ * 사재 176.78mm = 250mm(x 오프셋) × sin45° — 방향군 자기 좌표계로 재고 있다는 근거.
  */
 export function makeHaunchWall(): Rebar[] {
   const bars: Rebar[] = [];
