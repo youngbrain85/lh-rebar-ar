@@ -70,7 +70,11 @@ function median(xs: number[]): number {
   return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
 }
 
-function midpointOf(r: ClassifiedRebar): Vec3 {
+/**
+ * 철근 중심선의 호길이 중점. 2점짜리 중심선에서 `line[length/2]`는 끝점이므로
+ * 반드시 이 함수를 쓸 것. 간격·위치 두 지표가 공유한다.
+ */
+export function barMidpoint(r: { centerline: Vec3[] }): Vec3 {
   return samplePolyline(r.centerline, 3)[1];
 }
 
@@ -110,7 +114,7 @@ export function computeSpacing(
 
     const sorted = [...group]
       .map((b) => {
-        const mid = midpointOf(b);
+        const mid = barMidpoint(b);
         return { b, mid, t: dot(mid, order) };
       })
       .sort((x, y) => x.t - y.t);

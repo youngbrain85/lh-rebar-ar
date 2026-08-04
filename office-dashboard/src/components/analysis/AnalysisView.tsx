@@ -17,7 +17,9 @@ import { rejudgeRecords } from "../../lib/analysis/judge";
 import { assignLabels } from "../../lib/analysis/label";
 import type { AnalysisOutput } from "../../lib/analysis/pipeline";
 import { parseRebarsJson } from "../../lib/analysis/rebarsSchema";
-import { computeSpacing, spacingGroupKey, suggestRequiredSpacing } from "../../lib/analysis/spacing";
+import {
+  barMidpoint, computeSpacing, spacingGroupKey, suggestRequiredSpacing,
+} from "../../lib/analysis/spacing";
 import type {
   AnalysisResult, ClassifiedRebar, Mat4, Rebar, RebarRecord, Verdict,
 } from "../../lib/analysis/types";
@@ -192,9 +194,13 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
     return rejudgeRecords(base, tolerance);
   }, [output, savedRecords, tolerance]);
 
-  /** 요구 간격이 바뀌면 정합을 다시 돌리지 않고 간격만 다시 잰다 */
+  /**
+   * 요구 간격이 바뀌면 정합을 다시 돌리지 않고 간격만 다시 잰다.
+   * 정합 실패 시 null — 컨투어와 같은 기준이다. 실패한 정합의 scanTransformed는 엉뚱한
+   * 자리라 간격도 무의미하므로, 지도만 끄고 표에는 숫자를 남기면 안 된다.
+   */
   const spacing = useMemo(() => {
-    if (!output) return null;
+    if (!output || output.registration.failed) return null;
     return computeSpacing(output.scanTransformed, output.families, output.wallNormal, requiredSpacing);
   }, [output, requiredSpacing]);
 
@@ -207,9 +213,11 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
       if (!rec.scanId || !rec.deviationMm) continue;
       const bar = byId.get(rec.scanId);
       if (!bar) continue;
-      const line = bar.centerline;
-      const mid = line[Math.floor(line.length / 2)];
-      out.push({ midpoint: mid, deviationMm: rec.deviationMm.mean });
+      // ★ 중심선은 보통 2점이다. line[Math.floor(length/2)]는 중점이 아니라 **끝점**이라
+      //   모든 표본이 벽 한쪽 모서리에 몰리고, IDW 반경(0.6m) 밖은 전부 비어 지도가
+      //   가느다란 띠 하나로 나온다. 간격 지표와 같은 호길이 중점을 공유해야 두 지표가
+      //   같은 자리를 가리킨다.
+      out.push({ midpoint: barMidpoint(bar), deviationMm: rec.deviationMm.mean });
     }
     return out;
   }, [output, view]);
@@ -273,7 +281,9 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
                 스캔 메시
               </Chip>
             )}
-            {output && (
+            {/* 정합 실패 시엔 아예 내보내지 않는다. 칩만 남기면 눌러도 지도는 안 뜨는데
+                설계 고스트만 사라져, 수동 초기정합에 필요한 참조가 화면에서 없어진다. */}
+            {output && !output.registration.failed && (
               <Chip
                 size="xs" color="grape" checked={showContour}
                 onChange={(on) => {
@@ -310,7 +320,8 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
           style={{ position: "absolute", top: 8, right: 8, background: "rgba(255,255,255,0.92)" }}
         >
           <Text size="xs" fw={700} mb={4}>색상 안내</Text>
-          {output && showContour && (
+          {/* 지도가 실제로 그려질 때만 — 눈금만 뜨고 색은 없는 상태를 만들지 않는다 */}
+          {contour && (
             <Box mb={8}>
               <Text size="xs" fw={600} mb={3}>
                 {metric === "spacing" ? "간격 편차" : "위치 편차"} (mm)
@@ -438,9 +449,20 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
                         <NumberInput
                           size="xs" w={92} step={5} min={10}
                           value={requiredSpacing[key] ?? Math.round(g.medianMm / 5) * 5}
-                          onChange={(v) =>
-                            setRequiredSpacing((prev) => ({ ...prev, [key]: Number(v) || 0 }))
-                          }
+                          onChange={(v) => {
+                            const n = Number(v);
+                            setRequiredSpacing((prev) => {
+                              // 빈칸·0·음수는 "지정 안 함"으로 되돌려 중앙값 폴백을 살린다.
+                              // 0을 저장하면 computeSpacing의 `?? med`가 0을 유효값으로 받아
+                              // (?? 는 0을 통과시킨다) 그룹 전체가 최상위 색으로 포화된다.
+                              if (!Number.isFinite(n) || n <= 0) {
+                                const next = { ...prev };
+                                delete next[key];
+                                return next;
+                              }
+                              return { ...prev, [key]: n };
+                            });
+                          }}
                         />
                       </Group>
                     );
@@ -459,7 +481,9 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
               <ScrollArea h="100%">
                 {metric === "spacing" && !spacing ? (
                   <Text size="xs" c="dimmed" p="sm">
-                    간격은 저장되지 않습니다 — 「재분석」을 눌러야 표시됩니다.
+                    {output?.registration.failed
+                      ? "정합에 실패해 간격을 신뢰할 수 없습니다 — 수동 초기정합으로 다시 분석하세요."
+                      : "간격은 저장되지 않습니다 — 「재분석」을 눌러야 표시됩니다."}
                   </Text>
                 ) : metric === "spacing" ? (
                   <Table striped highlightOnHover stickyHeader verticalSpacing={4} fz="xs">
