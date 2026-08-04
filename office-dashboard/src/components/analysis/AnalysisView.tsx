@@ -524,6 +524,14 @@ export default function AnalysisView({
           size="xs"
           label="설계모델 없이 분석 (간격 편차만)"
           checked={noDesignMode}
+          // 분석이 도는 동안 잠근다 — 요구 간격 입력칸과 같은 이유다(stage != null).
+          // 토글하면 noDesignMode(다음 프레임)와 analyze()가 이미 스냅샷한 requiredSpacingState
+          // (이번 실행 프레임)가 그 순간부터 어긋난다: merged는 옛 프레임·옛 map으로 클로저에
+          // 고정된 채 계산되는데 dispatch는 최신 state에 적용되므로 usable이 빠진 채 PUT되고,
+          // noDesignMode ⟺ requiredSpacingState.frame 불변식도 그 사이 잠깐 깨진다. 결과 자체는
+          // 항상 프레임 일관됨을 유지해 조작된 편차로 이어지진 않지만(다음 재분석이 정리한다),
+          // 같은 이음매에서 다섯 번째로 문제가 났던 자리라 아예 만질 수 없게 막는다.
+          disabled={stage != null}
           onChange={(e) => {
             const checked = e.currentTarget.checked;
             onNoDesignModeChange(checked);
