@@ -36,9 +36,19 @@ export type RequiredSpacingEvent =
    *  프레임을 확정하고 map과 함께 짝지어 들인다. "지금 모드"와 비교해 거부하지
    *  않는다: 같은 저장 결과에서 나온 map과 method이므로 항상 짝이 맞는다. */
   | { type: "loadedResult"; method: SavedMethod; map: Record<string, number> }
-  /** 사용자가 「요구 간격」 입력칸을 직접 고쳤다. value가 null이면(빈칸·0·음수 등
-   *  "지정 안 함") 그 키를 지워 그룹 실측 중앙값 폴백을 살린다. */
-  | { type: "userEdited"; key: string; value: number | null }
+  /**
+   * 사용자가 「요구 간격」 입력칸을 직접 고쳤다. value가 null이면(빈칸·0·음수 등
+   * "지정 안 함") 그 키를 지워 그룹 실측 중앙값 폴백을 살린다.
+   *
+   * frame은 이 key가 나온 표(spacingGroups)를 만든 결과 자신의 프레임이다 —
+   * "지금 체크박스가 어느 쪽인지"가 아니다. 체크박스를 토글하면 map은 즉시
+   * 비워지지만 화면의 표는 다음 재분석 전까지 이전 프레임 그대로 남아 있다.
+   * 그 표에 입력한 값이 새 프레임(state.frame)에 그대로 들어가면, 같은 키가
+   * 물리적으로 다른 그룹을 가리키는 조작된 편차가 나온다(리뷰 실측: 슬래브
+   * 프레임의 h1/inner가 스캔 프레임의 h1/inner와 다른 그룹). frame이 state.frame과
+   * 다르면 리듀서가 이 편집을 버린다.
+   */
+  | { type: "userEdited"; key: string; value: number | null; frame: FrameSource }
   /** 분석이 성공적으로 끝나 그룹 실측 중앙값(suggested)을 얻었다 — 지금 이 실행의
    *  프레임(frame)과 현재 state의 프레임이 일치할 때만 기존 값을 유지한 채 위에
    *  덮어쓰고, 아니면 suggested만으로 새로 시작한다. */
@@ -80,6 +90,11 @@ export function requiredSpacingReducer(
     case "loadedResult":
       return { frame: frameOfMethod(e.method), map: cleanMap(e.map) };
     case "userEdited": {
+      // 이 편집이 나온 표의 프레임(e.frame)이 지금 state의 프레임과 다르면 버린다 —
+      // 체크박스를 토글한 직후, 재분석 전이라 화면에 남아 있는 이전 프레임의 표에
+      // 입력한 값이 새 프레임의 같은 키를 가진 다른 물리적 그룹으로 새어 들어가는
+      // 것을 막는다.
+      if (e.frame !== s.frame) return s;
       if (e.value == null) {
         if (!(e.key in s.map)) return s; // 이미 없으면 새 객체를 만들 필요 없다
         const next = { ...s.map };

@@ -79,12 +79,58 @@ describe("requiredSpacingReducer", () => {
     expect(usableRequiredSpacing(s, "scan")).toEqual({});
   });
 
-  it("userEdited는 값이 있으면 반영하고 null이면(빈칸·0·음수) 지운다 — 프레임은 안 바뀐다", () => {
+  it("userEdited는 값이 있으면 반영하고 null이면(빈칸·0·음수) 지운다 — 프레임이 일치할 때만", () => {
     const s: RequiredSpacingState = { frame: "design", map: { "h1/inner": 100 } };
-    const edited = requiredSpacingReducer(s, { type: "userEdited", key: "h1/inner", value: 250 });
+    const edited = requiredSpacingReducer(s, {
+      type: "userEdited", key: "h1/inner", value: 250, frame: "design",
+    });
     expect(edited).toEqual({ frame: "design", map: { "h1/inner": 250 } });
-    const cleared = requiredSpacingReducer(edited, { type: "userEdited", key: "h1/inner", value: null });
+    const cleared = requiredSpacingReducer(edited, {
+      type: "userEdited", key: "h1/inner", value: null, frame: "design",
+    });
     expect(cleared).toEqual({ frame: "design", map: {} });
+  });
+
+  // 4차 리뷰 지적 #1: "토글 후 편집" — 체크박스를 토글하면 state.frame은 즉시
+  // 바뀌지만(userToggledFrame이 map을 비운다), 화면의 표(spacingGroups)는 다음
+  // 재분석 전까지 이전 프레임 그대로 남는다. 그 표에 입력한 값이 그대로 들어가면
+  // 같은 키가 물리적으로 다른 그룹을 가리키는 조작된 편차가 나온다(리뷰가 site-1
+  // 형태 픽스처로 실측: 슬래브 프레임 h1/inner=300이 스캔 프레임 h1/inner=400인
+  // 자리에 required:437로 들어가 dev=-37을 지어냈다). userEdited가 그 표를 만든
+  // 결과의 프레임(frame)을 함께 실어 보내면, 리듀서가 지금 state.frame과 어긋나는
+  // 편집을 버릴 수 있다.
+  it("편집이 나온 표의 프레임이 지금 state의 프레임과 다르면 반영하지 않는다", () => {
+    // 체크박스를 막 토글해 프레임은 scan인데(map은 비어 있다), 아직 재분석 전이라
+    // 화면의 입력칸은 여전히 design 프레임의 표를 보여주고 있는 상황을 재현한다.
+    const s: RequiredSpacingState = { frame: "scan", map: {} };
+    const rejected = requiredSpacingReducer(s, {
+      type: "userEdited", key: "h1/inner", value: 437, frame: "design",
+    });
+    // 437이 map에 들어가지 않는다 — 버그가 있었다면 { frame: "scan", map: { "h1/inner": 437 } }가 나온다.
+    expect(rejected).toEqual({ frame: "scan", map: {} });
+  });
+
+  it("프레임이 일치하면 그제서야 반영된다 — 재분석 후 표와 state가 같은 프레임이 된 경우", () => {
+    const s: RequiredSpacingState = { frame: "scan", map: {} };
+    const applied = requiredSpacingReducer(s, {
+      type: "userEdited", key: "h1/inner", value: 437, frame: "scan",
+    });
+    expect(applied).toEqual({ frame: "scan", map: { "h1/inner": 437 } });
+  });
+
+  // 리뷰 지적 #3: cleanMap의 필터(유한·양수만 통과)는 지금까지 테스트되지 않았다 —
+  // 그 검사를 () => true로 바꿔도 기존 스위트가 전부 green이었다.
+  it("loadedResult는 저장된 맵의 0·음수·NaN을 걸러낸다", () => {
+    const dirty = {
+      "v1/inner": 125,       // 정상
+      "h1/inner": 0,         // 0 — computeSpacing의 `?? med`가 유효값으로 통과시켜 버린다
+      "v1/outer": -10,       // 음수
+      "h1/outer": Number.NaN, // NaN
+    };
+    const next = requiredSpacingReducer(INITIAL_REQUIRED_SPACING_STATE, {
+      type: "loadedResult", method: "auto", map: dirty,
+    });
+    expect(next).toEqual({ frame: "design", map: { "v1/inner": 125 } });
   });
 
   it("초기 상태는 design 프레임의 빈 맵이다", () => {

@@ -19,7 +19,7 @@ import { assignLabels } from "../../lib/analysis/label";
 import type { AnalysisOutput } from "../../lib/analysis/pipeline";
 import { parseRebarsJson } from "../../lib/analysis/rebarsSchema";
 import {
-  INITIAL_REQUIRED_SPACING_STATE, requiredSpacingReducer, usableRequiredSpacing,
+  frameOfMethod, INITIAL_REQUIRED_SPACING_STATE, requiredSpacingReducer, usableRequiredSpacing,
   type FrameSource,
 } from "../../lib/analysis/requiredSpacingState";
 import { computeSpacing, spacingGroupKey, suggestRequiredSpacing } from "../../lib/analysis/spacing";
@@ -312,11 +312,12 @@ export default function AnalysisView({
    */
   const spacing = useMemo(() => {
     if (!output || output.registration.failed) return null;
-    // 여기서는 usableRequiredSpacing으로 프레임을 다시 확인하지 않는다 — output의
-    // 프레임이 바뀌는 유일한 경로(analyze() 성공)가 requiredSpacingState도 같은
-    // 프레임으로 함께 갱신하므로(analyzed 이벤트), 이 둘은 항상 같이 움직인다. 체크박스만
-    // 토글된 경우(아직 재분석 전) map은 이미 비어 있어({}) 폴백(중앙값)으로 안전하게
-    // 떨어진다 — 지어낼 값이 없다.
+    // 여기서는 usableRequiredSpacing으로 프레임을 다시 확인하지 않는다 — 체크박스만
+    // 토글된 경우(아직 재분석 전) requiredSpacingState.frame은 output보다 앞서
+    // 바뀌지만, 그 순간 map은 이미 비어 있으므로({}, userToggledFrame이 지운다)
+    // 폴백(중앙값)으로 안전하게 떨어진다. map이 비어 있지 않은 채로 프레임만
+    // 어긋나는 경우는 사용자가 그 사이에 입력칸을 편집했을 때뿐인데, 그 경로는
+    // 아래 requiredSpacingStale이 입력칸 자체를 잠가 막는다.
     return computeSpacing(
       output.scanTransformed, output.families, output.wallNormal, requiredSpacingState.map,
     );
@@ -357,6 +358,17 @@ export default function AnalysisView({
     (id: string) => output?.families.find((f) => f.id === id)?.label ?? id,
     [output],
   );
+
+  // spacingGroups(요구 간격 입력칸의 키)는 output에서 나온다 — 그 프레임은
+  // output.registration.method가 확정한다. 체크박스를 토글하면 requiredSpacingState
+  // .frame은 즉시 바뀌지만 output은 다음 재분석까지 이전 프레임 그대로다. 그 사이
+  // (토글 후 재분석 전) 이 표에 입력하면, 표의 키는 옛 프레임인데 값은 새 프레임의
+  // map으로 들어가 같은 키가 물리적으로 다른 그룹을 가리키는 조작된 편차가 나온다
+  // (리뷰 실측: 슬래브 프레임의 h1/inner가 스캔 프레임의 h1/inner와 다른 그룹).
+  // 두 프레임이 어긋나 있으면 입력칸을 잠근다 — 지금 보이는 표는 "다른 결과"이므로
+  // 의미 있게 편집할 수 없다는 뜻이다.
+  const outputFrame: FrameSource | null = output ? frameOfMethod(output.registration.method) : null;
+  const requiredSpacingStale = outputFrame !== null && outputFrame !== requiredSpacingState.frame;
 
   if (loading)
     return (
@@ -604,6 +616,12 @@ export default function AnalysisView({
                 <Text size="xs" c="dimmed" mb={4}>
                   순간격 20mm 미만 구간은 이음으로 보고 측정에서 제외됩니다.
                 </Text>
+                {requiredSpacingStale && (
+                  <Text size="xs" c="orange" mb={4}>
+                    체크박스를 바꾼 뒤 아직 재분석하지 않았습니다 — 지금 보이는 표는 이전
+                    결과라 입력칸을 잠급니다. 「재분석」을 눌러야 다시 고칠 수 있습니다.
+                  </Text>
+                )}
                 <Stack gap={4}>
                   {spacingGroups.map((g) => {
                     const key = spacingGroupKey(g.direction, g.layer);
@@ -615,6 +633,12 @@ export default function AnalysisView({
                         </Text>
                         <NumberInput
                           size="xs" w={92} step={5} min={10}
+                          // requiredSpacingStale: 표(옛 프레임)와 map(새 프레임)이 어긋난
+                          // 동안은 편집을 막는다(위 주석 참조). stage != null: 분석이 도는
+                          // 동안은(패널은 계속 조작 가능하다) 편집을 막아, analyze()가
+                          // 클로저로 스냅샷한 usable/merged와 화면에 보이는 state가
+                          // 갈라지는 걸 애초에 막는다 — 조정보다 경합을 없애는 쪽을 골랐다.
+                          disabled={requiredSpacingStale || stage != null}
                           value={requiredSpacingState.map[key] ?? Math.round(g.medianMm / 5) * 5}
                           onChange={(v) => {
                             const n = Number(v);
@@ -622,7 +646,14 @@ export default function AnalysisView({
                             // 0을 저장하면 computeSpacing의 `?? med`가 0을 유효값으로 받아
                             // (?? 는 0을 통과시킨다) 그룹 전체가 최상위 색으로 포화된다.
                             const value = Number.isFinite(n) && n > 0 ? n : null;
-                            dispatchRequiredSpacing({ type: "userEdited", key, value });
+                            // frame은 이 입력칸이 속한 표를 만든 output의 프레임이다 —
+                            // requiredSpacingStale이 이미 입력을 막아 두 값이 어긋나는
+                            // 경우가 없어야 하지만, 리듀서에도 같은 가드를 둬(userEdited
+                            // 케이스) UI가 놓치더라도 조작된 편차가 새어 들어가지 않게
+                            // 이중으로 막는다.
+                            dispatchRequiredSpacing({
+                              type: "userEdited", key, value, frame: outputFrame ?? requiredSpacingState.frame,
+                            });
                           }}
                         />
                       </Group>
