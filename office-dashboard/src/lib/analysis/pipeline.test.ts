@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { runAnalysis } from "./pipeline";
+import { spacingGroupKey } from "./spacing";
 import { jitterRebars, makeWallGrid, offsetRebar, rigidMat4, transformRebars } from "./testFixtures";
 
 const UP: [number, number, number] = [0, 1, 0];
@@ -51,5 +52,32 @@ describe("runAnalysis end-to-end", () => {
       toleranceMm: 10, up: UP,
     });
     expect(out.registration.failed).toBe(true);
+  });
+});
+
+describe("runAnalysis: 방향군과 간격", () => {
+  it("방향군을 산출하고 간격 구간을 만든다", () => {
+    const design = makeWallGrid();
+    const scan = transformRebars(makeWallGrid(), rigidMat4(20, [0.4, 0, 0]))
+      .map((r, i) => ({ ...r, id: `s${i}` }));
+    const out = runAnalysis({ design, scan, toleranceMm: 10, up: UP });
+    expect(out.families.length).toBeGreaterThanOrEqual(2);
+    expect(out.spacing.gaps.length).toBeGreaterThan(0);
+    expect(out.spacing.groups.every((g) => g.medianMm > 0)).toBe(true);
+    expect(out.plane.width).toBeGreaterThan(0);
+  });
+
+  it("요구 간격을 주면 그 값으로 편차를 잰다", () => {
+    const design = makeWallGrid();
+    const scan = makeWallGrid().map((r, i) => ({ ...r, id: `s${i}` }));
+    const base = runAnalysis({ design, scan, toleranceMm: 10, up: UP });
+    const key = spacingGroupKey(base.spacing.groups[0].direction, base.spacing.groups[0].layer);
+    const out = runAnalysis({
+      design, scan, toleranceMm: 10, up: UP,
+      requiredSpacingMm: { [key]: 100 },
+    });
+    const g = out.spacing.gaps.find((x) => spacingGroupKey(x.direction, x.layer) === key)!;
+    expect(g.requiredMm).toBe(100);
+    expect(g.deviationMm).toBeCloseTo(g.spacingMm - 100, 6);
   });
 });

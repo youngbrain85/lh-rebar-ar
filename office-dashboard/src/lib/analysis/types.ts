@@ -89,11 +89,18 @@ export interface AnalysisSummary {
 }
 
 export interface AnalysisResult {
-  version: 1;
+  version: 2;
   scanId: string;
   arId: string;
   registration: RegistrationResult;
+  /** 위치 편차 판정용 허용오차 (mm) */
   toleranceMm: number;
+  /** 방향군 — 재방문 시 라벨 복원에 쓴다 */
+  families: DirectionFamily[];
+  /** 그룹별 요구 간격 (mm). key = `${direction}/${layer}` */
+  requiredSpacingMm: Record<string, number>;
+  /** 그룹별 실측 간격 중앙값 */
+  spacingGroups: { direction: DirectionId; layer: Layer; medianMm: number; count: number }[];
   rebars: RebarRecord[];
   summary: AnalysisSummary;
 }

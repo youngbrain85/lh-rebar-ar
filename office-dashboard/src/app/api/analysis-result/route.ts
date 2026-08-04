@@ -26,11 +26,12 @@ function isValidKey(k: { siteId: string; scanId: string }): boolean {
   return SITE_ID_RE.test(k.siteId) && SCAN_ID_RE.test(k.scanId);
 }
 
-/** 저장된 AnalysisResult의 최소 형태 검증 (버전 + 필수 필드 타입) */
+/** 저장된 AnalysisResult의 최소 형태 검증 (버전 + 필수 필드 타입).
+ * v1은 더 이상 받지 않는다 — 클라이언트가 재분석해 v2로 다시 저장한다. */
 function isAnalysisResultShape(v: unknown): boolean {
   if (typeof v !== "object" || v === null) return false;
   const o = v as Record<string, unknown>;
-  return o.version === 1 && Array.isArray(o.rebars) && typeof o.summary === "object" && o.summary !== null;
+  return o.version === 2 && Array.isArray(o.rebars) && typeof o.summary === "object" && o.summary !== null;
 }
 
 function noToken() {

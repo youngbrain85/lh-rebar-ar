@@ -91,7 +91,7 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
           const prev: AnalysisResult = await prevRes.json();
           if (
             !cancelled &&
-            prev.version === 1 &&
+            prev.version === 2 &&
             Array.isArray(prev.rebars) &&
             typeof prev.toleranceMm === "number"
           ) {
@@ -132,13 +132,17 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
         setSavedRecords(null);
         if (!out.registration.failed) {
           const result: AnalysisResult = {
-            version: 1, scanId: scan.scan_id, arId,
+            version: 2, scanId: scan.scan_id, arId,
             registration: {
               matrix: out.registration.matrix,
               rmsMm: out.registration.rmsMm,
               method: out.registration.method,
             },
             toleranceMm: tolerance,
+            families: out.families,
+            // 요구 간격 입력 UI는 Task 7에서 붙는다 — 그때까지는 그룹 실측 중앙값을 기준으로 삼는다
+            requiredSpacingMm: {},
+            spacingGroups: out.spacing.groups,
             rebars: out.rebars,
             summary: out.summary,
           };
