@@ -155,7 +155,13 @@ fields:
 {
   "version": 1,
   "scanId": "...", "arId": "...",
-  "registration": { "matrix": [16], "rmsMm": 4.2, "method": "auto" | "manual" },
+  "registration": { "matrix": [16], "rmsMm": 4.2, "method": "auto" | "manual" | "none" },
+  // method:"none" = 설계모델 없이 분석("설계모델 없이 분석 (간격 편차만)" 모드,
+  // frameSource:"scan")했다는 뜻. 이때 matrix는 항등행렬이고 rmsMm은 의미 없는 0이며,
+  // summary는 아래 필드 전부 0/null, rebars는 빈 배열이다 — "판정할 설계가 없었다"이지
+  // "결함이 0건이었다"가 아니다. 이 파일만 보고는 두 상태(정합 성공/설계 없음)를
+  // summary 값만으로 구별할 수 없으므로, 이 저장소를 소비하는 쪽(예: BriconLab 이관)은
+  // 반드시 method를 먼저 확인해야 한다.
   "toleranceMm": 10,
   "rebars": [{
     "designId": "rebar_3" | null,      // null = 도면 외

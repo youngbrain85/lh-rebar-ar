@@ -16,7 +16,7 @@ import {
 import { barMidpoint } from "../../lib/analysis/geom";
 import { rejudgeRecords } from "../../lib/analysis/judge";
 import { assignLabels } from "../../lib/analysis/label";
-import type { AnalysisOutput } from "../../lib/analysis/pipeline";
+import { requiredSpacingMatchesMode, type AnalysisOutput } from "../../lib/analysis/pipeline";
 import { parseRebarsJson } from "../../lib/analysis/rebarsSchema";
 import { computeSpacing, spacingGroupKey, suggestRequiredSpacing } from "../../lib/analysis/spacing";
 import type {
@@ -92,6 +92,12 @@ export default function AnalysisView({
   // ---- 입력 데이터 로드: 설계 + 스캔 + 기존 결과 ----
   useEffect(() => {
     let cancelled = false;
+    // 이 마운트 시점에 체크박스가 어떤 상태였는지 — SiteAnalysis가 스캔을 넘나들어도
+    // 죽지 않는 상태라(AnalysisView는 스캔마다 새로 마운트된다), 다른 스캔에서 넘어온
+    // 잔상일 수 있다. 아래에서 이 스캔 고유의 저장 결과로 다시 맞추지만(대칭 동기화),
+    // requiredSpacingMm을 들일지 판단할 땐 "지금 이 순간의 모드"만 근거로 삼는다 —
+    // 동기화가 반영되는 타이밍에 기대지 않는, 독립적인 방어선이다.
+    const modeAtMount = noDesignMode;
     (async () => {
       try {
         const [design, scanRes, prevRes] = await Promise.all([
@@ -109,6 +115,8 @@ export default function AnalysisView({
         setDesignRebars(design.rebars);
         setScanRebars(parsed.data.rebars);
         setMeshUrl(scanRes.mesh_url ?? null);
+        // 저장된 결과의 정합 방식 — 없으면 null(= "설계모델 없이" 아님, 기본 취급).
+        let method: "auto" | "manual" | "none" | null = null;
         if (prevRes.ok) {
           const prev: AnalysisResult = await prevRes.json();
           if (
@@ -119,30 +127,40 @@ export default function AnalysisView({
           ) {
             setSavedRecords(prev.rebars);
             setTolerance(prev.toleranceMm);
-            const method = prev.registration?.method ?? null;
+            method = prev.registration?.method ?? null;
             setSavedMethod(method);
-            // 저장된 결과가 설계모델 없이 만들어진 것이면(method:"none") 체크박스도
-            // 그 사실에 맞춰 켜준다 — 꺼진 채로 두면 사용자가 「재분석」을 눌렀을 때
-            // frameSource:"design"으로 돌아가 지금 보고 있는 결과와 다른 걸 만들어낸다.
-            if (method === "none") onNoDesignModeChange(true);
             if (prev.requiredSpacingMm) {
-              // computeSpacing의 `requiredMm[key] ?? med`는 `??`라 0을 유효값으로 통과시킨다.
-              // 저장된 0(또는 음수·비정상값)을 그대로 로드하면 해당 그룹이 최상위 색으로
-              // 포화된 채 analyze()의 merge(`{ ...suggested, ...requiredSpacing }`)를 거쳐
-              // 재분석 후에도 되살아난다 — 입력창의 유효성 검사(finite && > 0)를 로드
-              // 시점에도 똑같이 적용해야 이 구멍이 막힌다.
-              const cleaned = Object.fromEntries(
-                Object.entries(prev.requiredSpacingMm).filter(
-                  ([, v]) => typeof v === "number" && Number.isFinite(v) && v > 0,
-                ),
-              );
-              setRequiredSpacing(cleaned);
+              // 그룹 키(`${directionId}/${layer}`)는 프레임에 종속적이다 — directionId(v1/h1/…)는
+              // 프레임(design 대 scan)마다 다시 배정되므로, 같은 키가 물리적으로 다른 그룹을
+              // 가리킬 수 있다. 저장 당시의 방식(method)과 지금 이 화면의 모드가 다르면
+              // 그대로 들이지 않는다 — 들이면 "슬래브 프레임에서 저장한 h1/h2 간격이
+              // 스캔 프레임의 h1(=원래 v1)에 그대로 적용"되는 식으로 +100mm급 편차가
+              // 조작된다(리뷰에서 실측). 어긋나면 비워 그룹 실측 중앙값 폴백(편차 0)으로
+              // 안전하게 떨어뜨린다.
+              if (requiredSpacingMatchesMode(method, modeAtMount)) {
+                // computeSpacing의 `requiredMm[key] ?? med`는 `??`라 0을 유효값으로 통과시킨다.
+                // 저장된 0(또는 음수·비정상값)을 그대로 로드하면 해당 그룹이 최상위 색으로
+                // 포화된 채 analyze()의 merge(`{ ...suggested, ...requiredSpacing }`)를 거쳐
+                // 재분석 후에도 되살아난다 — 입력창의 유효성 검사(finite && > 0)를 로드
+                // 시점에도 똑같이 적용해야 이 구멍이 막힌다.
+                const cleaned = Object.fromEntries(
+                  Object.entries(prev.requiredSpacingMm).filter(
+                    ([, v]) => typeof v === "number" && Number.isFinite(v) && v > 0,
+                  ),
+                );
+                setRequiredSpacing(cleaned);
+              }
             }
             if (Array.isArray(prev.registration?.matrix) && prev.registration.matrix.length === 16) {
               setSavedMatrix(prev.registration.matrix);
             }
           }
         }
+        // 체크박스를 이 스캔의 실제 저장 상태로 다시 맞춘다(대칭 동기화) — 저장된 결과가
+        // 없으면 기본값(false)으로, "none"이면 켜진 상태로. 한쪽으로만 동기화하면(켜질
+        // 때만) 이전 스캔에서 켜둔 채로 다음 스캔으로 넘어와 버린다 — SiteAnalysis는
+        // 스캔을 넘나들어도 죽지 않는 상태라 이 값만 유일하게 잔상이 남는다.
+        if (!cancelled) onNoDesignModeChange(method === "none");
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e));
       } finally {
@@ -152,6 +170,10 @@ export default function AnalysisView({
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- noDesignMode는 의도적으로
+    // deps에서 뺐다: modeAtMount는 "이 스캔을 열 때의 스냅샷"이어야 하므로, 체크박스를
+    // 만졌다고 이 로드 이펙트가 다시 도는(그래서 스캔·설계를 다시 fetch하는) 건 원치
+    // 않는다. onNoDesignModeChange는 useState 세터라 identity가 항상 안정적이라 안전하다.
   }, [arId, scan.site_id, scan.scan_id, onNoDesignModeChange]);
 
   // ---- 분석 실행 ----
@@ -234,6 +256,16 @@ export default function AnalysisView({
     setMetric(m);
     setContourMax(DEFAULT_CONTOUR_MAX[m]);
   }, []);
+
+  // (CRITICAL, 리뷰 지적) 요구 간격은 프레임 전환에서 살아남으면 안 된다. 그룹 키
+  // (`${directionId}/${layer}`)의 directionId(v1/h1/…)는 프레임마다 다시 배정되므로,
+  // 설계 모드에서 입력/제안된 값이 스캔 모드로 넘어가면(또는 그 반대로) 같은 키가
+  // 물리적으로 다른 그룹을 가리켜 조작된 편차(+100mm급)가 표에 찍힌다 — 체크박스를
+  // 어느 방향으로 넘기든(진입/이탈 둘 다) 무조건 비운다. 이후 analyze()가 그룹
+  // 실측 중앙값으로 다시 제안해 채운다.
+  useEffect(() => {
+    setRequiredSpacing({});
+  }, [noDesignMode]);
 
   // 체크박스가 켜지면 이 화면을 "간격 편차만" 모드로 고정한다 — 위치 편차는 설계 없이는
   // 정의되지 않고(비교 대상이 없다), 정합되지 않은 설계 고스트는 노이즈일 뿐이다.
@@ -328,6 +360,7 @@ export default function AnalysisView({
           design={output?.designClassified ?? EMPTY_CLASSIFIED}
           scan={output?.scanTransformed ?? EMPTY_CLASSIFIED}
           showVerdicts={showVerdicts}
+          noDesign={resultIsNoDesign}
           showDesign={showDesign}
           showScanBars={showScanBars}
           showMesh={showMesh}
@@ -416,7 +449,11 @@ export default function AnalysisView({
             {/* 판정 색은 설계 대비 매칭 결과다 — 설계모델 없이 분석한 결과에는 애초에
                 존재하지 않으므로 범례에서도 뺀다(색이 안 쓰이는데 범례만 남으면 판정이
                 된 것처럼 보인다). */}
-            {!resultIsNoDesign && (
+            {resultIsNoDesign ? (
+              // 판정색이 아닌 중립색(AnalysisViewer가 실제로 그리는 색과 동일 출처)임을
+              // 범례에서도 밝힌다 — 정상/도면외 같은 판정 팔레트와 헷갈리지 않게.
+              <LegendRow color={LAYER_COLOR.asBuilt} label="시공 철근 (판정 없음)" />
+            ) : (
               <>
                 <LegendRow color={LAYER_COLOR.pass} label="정상 (허용오차 이내)" />
                 <LegendRow color={LAYER_COLOR.out_of_tolerance} label="허용초과" />

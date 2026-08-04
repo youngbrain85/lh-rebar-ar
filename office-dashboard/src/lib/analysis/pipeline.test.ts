@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { mat4FromRotTrans, mat4Identity } from "./geom";
-import { runAnalysis } from "./pipeline";
+import { requiredSpacingMatchesMode, runAnalysis } from "./pipeline";
 import { spacingGroupKey } from "./spacing";
 import {
   jitterRebars, makeDiagonalFamilyGrid, makeWallGrid, offsetRebar, rigidMat4, transformRebars,
@@ -141,8 +141,13 @@ describe("runAnalysis: frameSource=\"scan\" — 설계모델 없이 분석", () 
     expect(withSlabDesign.plane).toEqual(withWallDesign.plane);
 
     // 대조군: "design" 모드(기본값)에서는 같은 두 설계가 서로 다른 프레임을 만들어
-    // 간격이 달라진다 — 이 대조가 없으면 위 일치가 "그냥 뭘 해도 같은 값이 나오는"
-    // 우연인지, frameSource:"scan"이 실제로 설계 의존성을 끊었기 때문인지 구별할 수 없다.
+    // spacing 결과가 달라진다 — 이 대조가 없으면 위 일치가 "그냥 뭘 해도 같은 값이
+    // 나오는" 우연인지, frameSource:"scan"이 실제로 설계 의존성을 끊었기 때문인지
+    // 구별할 수 없다. ★ 여기서 "달라진다"는 간격 **중앙값 자체**(300mm×6, 400mm×4,
+    // 두 레이어)가 아니다 — 그건 이 픽스처에서 둘 다 동일하다. 달라지는 건 그
+    // 값이 매겨지는 **방향군 id와 순서**다(설계가 벽이면 v1/h1, 슬래브면 h1/h2로
+    // 재배정되고 그룹 나열 순서도 바뀐다) — 프레임(법선·방향군)이 설계를 따라가고
+    // 있다는 증거이자, toEqual이 실제로 잡아내는 차이다.
     const designModeWall = runAnalysis({ design: wallDesign, scan, toleranceMm: 10, up: UP });
     const designModeSlab = runAnalysis({ design: slabDesign, scan, toleranceMm: 10, up: UP });
     expect(designModeSlab.spacing).not.toEqual(designModeWall.spacing);
@@ -153,6 +158,13 @@ describe("runAnalysis: frameSource=\"scan\" — 설계모델 없이 분석", () 
     const out = runAnalysis({ design: [], scan, toleranceMm: 10, up: UP, frameSource: "scan" });
     expect(out.registration.failed).toBe(false);
     expect(out.spacing.gaps.length).toBeGreaterThan(0);
+    // ★ 위 두 단언만으로는 이 테스트가 겨냥하는 뮤테이션(설계를 읽으려다 실패)을 못 잡는다.
+    //   design:[]이어도 estimateWallNormal([])은 던지지 않고 [0,0,1]을 반환하고,
+    //   deriveDirectionFamilies([], up)은 []을 반환해 assignFamily가 전부 "v1"으로
+    //   몰아넣으며, computeSpacing의 axisOf 폴백([0,1,0])이 그래도 구간을 만들어내
+    //   gaps.length > 0이 우연히 통과한다. 방향군이 스캔에서 실제로 뽑혔는지(빈 배열이
+    //   아닌지)를 못박아야 "설계를 읽지 않고도 진짜로 동작한다"는 근거가 된다.
+    expect(out.families.length).toBeGreaterThan(0);
   });
 
   it("정합은 시도조차 하지 않는다 — method: \"none\", failed: false, 항등행렬", () => {
@@ -184,5 +196,57 @@ describe("runAnalysis: frameSource=\"scan\" — 설계모델 없이 분석", () 
     const scan = makeDiagonalFamilyGrid().map((r, i) => ({ ...r, id: `s${i}` }));
     const out = runAnalysis({ design, scan, toleranceMm: 10, up: UP, frameSource: "scan" });
     expect(out.families.some((f) => f.label.startsWith("사재"))).toBe(true);
+  });
+});
+
+// 리뷰 지적 #1(CRITICAL): AnalysisView.tsx가 저장된 requiredSpacingMm을 프레임이 바뀐
+// 채로 재사용해 조작된 편차(+100mm급)를 만들어낸 버그. 근본 원인은 spacingGroupKey의
+// directionId가 프레임에 종속적이라는 사실이고, 그 사실을 여기서 엔진 레벨로 고정해
+// 둔다 — UI가 requiredSpacingMatchesMode로 가드해야 하는 이유의 근거다.
+describe("그룹 키는 프레임에 종속적이다 — requiredSpacingMm이 프레임을 넘어 살아남으면 안 되는 이유", () => {
+  const slabRotation = mat4FromRotTrans([1, 0, 0, 0, 0, -1, 0, 1, 0], [0, 0, 0]);
+  const UP: [number, number, number] = [0, 1, 0];
+
+  it("같은 스캔·같은 물리적 간격 분포인데 설계가 벽이냐 슬래브냐에 따라 그룹 키(direction id)가 달라진다", () => {
+    const scan = makeWallGrid().map((r, i) => ({ ...r, id: `s${i}` }));
+    const wallDesign = makeWallGrid();
+    const slabDesign = transformRebars(makeWallGrid(), slabRotation);
+
+    const withWall = runAnalysis({ design: wallDesign, scan, toleranceMm: 10, up: UP });
+    const withSlab = runAnalysis({ design: slabDesign, scan, toleranceMm: 10, up: UP });
+
+    const wallKeys = new Set(
+      withWall.spacing.groups.map((g) => spacingGroupKey(g.direction, g.layer)),
+    );
+    const slabKeys = new Set(
+      withSlab.spacing.groups.map((g) => spacingGroupKey(g.direction, g.layer)),
+    );
+    // 우연한 이름 충돌이 아니라 체계적으로 다시 배정된다는 근거: 키 집합 자체가 다르다.
+    expect(slabKeys).not.toEqual(wallKeys);
+    // 하지만 물리적으로는 같은 간격 분포다(중앙값 다중집합이 동일) — "그룹이 사라진 게
+    // 아니라 이름표만 바뀌었다"는 것을 보여준다. 이게 바로 위험한 이유: 저장된
+    // requiredSpacingMm의 키를 다른 프레임에서 그대로 조회하면, 존재하지 않는 그룹으로
+    // 조용히 실패하는 게 아니라 **다른 물리적 그룹의 값을 우연히 맞혀버릴 수 있다**
+    // (리뷰가 실측한 h1/inner 충돌이 정확히 이 경우다).
+    const wallMedians = withWall.spacing.groups.map((g) => g.medianMm).sort((a, b) => a - b);
+    const slabMedians = withSlab.spacing.groups.map((g) => g.medianMm).sort((a, b) => a - b);
+    expect(slabMedians).toEqual(wallMedians);
+  });
+});
+
+describe("requiredSpacingMatchesMode", () => {
+  it("저장 당시 방식과 지금 모드가 일치할 때만 true", () => {
+    expect(requiredSpacingMatchesMode("none", true)).toBe(true);
+    expect(requiredSpacingMatchesMode("auto", false)).toBe(true);
+    expect(requiredSpacingMatchesMode("manual", false)).toBe(true);
+  });
+  it("저장 당시 방식과 지금 모드가 어긋나면 false", () => {
+    expect(requiredSpacingMatchesMode("none", false)).toBe(false);
+    expect(requiredSpacingMatchesMode("auto", true)).toBe(false);
+    expect(requiredSpacingMatchesMode("manual", true)).toBe(false);
+  });
+  it("저장된 결과가 없으면(null) 지금이 설계 모드일 때만 true — 지어낼 근거가 없으므로 보수적으로 막는다", () => {
+    expect(requiredSpacingMatchesMode(null, false)).toBe(true);
+    expect(requiredSpacingMatchesMode(null, true)).toBe(false);
   });
 });

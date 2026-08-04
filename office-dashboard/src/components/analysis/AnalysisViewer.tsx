@@ -16,6 +16,14 @@ export const LAYER_COLOR = {
   missing: "#e03131",
   design: "#8a94a6",
   scanMesh: "#5c7cfa",
+  /**
+   * 설계모델 없이 분석("설계모델 없이 분석" 모드, registration.method:"none")했을 때
+   * 시공 철근을 그리는 색. 판정(정상/허용초과/미시공/도면 외) 색 팔레트와 절대 겹치지
+   * 않는 중립색이다 — 이 모드에는 비교할 설계가 없어 판정 자체가 없으므로, 판정색을
+   * 쓰면 존재하지 않는 판정을 지어내는 셈이 된다. docs/design-system.md에도 이 색이
+   * 판정 팔레트 밖이라는 점을 적어뒀다 — 바꿀 때 같이 고칠 것.
+   */
+  asBuilt: "#495057",
 } as const;
 
 const hex = (c: string) => parseInt(c.slice(1), 16);
@@ -32,6 +40,12 @@ export interface ViewerProps {
   design: ClassifiedRebar[];
   scan: ClassifiedRebar[];
   showVerdicts: Verdict[];
+  /**
+   * 이 결과에 판정이 없다(registration.method:"none" — 설계모델 없이 분석). records는
+   * 항상 빈 배열이라 아래 판정 루프가 아무것도 그리지 않으므로, 이 플래그가 켜지면
+   * scan을 판정색이 아닌 LAYER_COLOR.asBuilt로 직접 그린다.
+   */
+  noDesign: boolean;
   /** 설계모델 고스트 표시 */
   showDesign: boolean;
   /** 시공(as-built) 철근 오버레이 표시 — 끄면 설계모델만 보인다 */
@@ -137,7 +151,7 @@ function contourMesh(field: ContourField, maxMm: number): THREE.Mesh {
 }
 
 export default function AnalysisViewer({
-  designObject, records, design, scan, showVerdicts, showDesign, showScanBars,
+  designObject, records, design, scan, showVerdicts, noDesign, showDesign, showScanBars,
   showMesh, meshUrl, registrationMatrix, contour, contourMax, focusKey,
 }: ViewerProps) {
   const mountRef = useRef<HTMLDivElement>(null);
@@ -150,6 +164,12 @@ export default function AnalysisViewer({
     contourLayer: THREE.Group;
     keyed: Map<string, THREE.Group>;
   } | null>(null);
+  // 사용자가 카메라를 직접 조작했는지 — 조작한 뒤에는 자동 프레이밍(설계 고스트 등장,
+  // 판정 없는 결과의 스캔 bbox 등)이 시야를 다시 빼앗지 않는다.
+  const userMovedRef = useRef(false);
+  // 판정 오버레이가 "빈 상태"였는지 — 없음→있음으로 바뀌는 전환 시점에만 카메라를
+  // 다시 잡는다(매 렌더마다 재프레이밍하지 않는다).
+  const overlayWasEmptyRef = useRef(true);
 
   // ---- 씬 부트스트랩 (1회) ----
   useEffect(() => {
@@ -164,6 +184,11 @@ export default function AnalysisViewer({
     mount.appendChild(renderer.domElement);
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
+    // "start" = 사용자가 드래그/줌/팬을 시작한 시점. 이후로는 자동 프레이밍이 카메라를
+    // 다시 옮기지 않는다 — 사용자가 원하는 대로 본 화면을 존중한다.
+    controls.addEventListener("start", () => {
+      userMovedRef.current = true;
+    });
     scene.add(new THREE.HemisphereLight(0xffffff, 0xc8d3e8, 1.1));
     const dir = new THREE.DirectionalLight(0xffffff, 1.2);
     dir.position.set(3, 6, 4);
@@ -239,27 +264,63 @@ export default function AnalysisViewer({
     if (!s) return;
     disposeChildren(s.overlay);
     s.keyed.clear();
-    if (!showScanBars) return; // 설계모델만 보기
-    const designById = new Map(design.map((r) => [r.id, r]));
-    const scanById = new Map(scan.map((r) => [r.id, r]));
-    for (const rec of records) {
-      if (!showVerdicts.includes(rec.verdict)) continue;
-      const key = rec.designId ?? rec.scanId ?? "";
-      const color = VERDICT_COLOR[rec.verdict];
-      let group: THREE.Group | null = null;
-      if (rec.verdict === "missing" && rec.designId) {
-        const d = designById.get(rec.designId);
-        if (d) group = rebarGroup(d, color, 0.45); // 설계 위치 고스트
-      } else if (rec.scanId) {
-        const sc = scanById.get(rec.scanId);
-        if (sc) group = rebarGroup(sc, color, 1);
-      }
-      if (group) {
+    if (!showScanBars) {
+      overlayWasEmptyRef.current = true; // 설계모델만 보기 — 다음에 켜지면 다시 빈→참 전환
+      return;
+    }
+    if (noDesign) {
+      // 판정할 설계가 없는 결과라 records는 항상 빈 배열이다 — 그렇다고 화면을 비워두면
+      // 3D 뷰 왼쪽이 통째로 빈 채로 열린다. scan(이미 스캔 자신의 프레임으로 분류됨)을
+      // 판정색이 아닌 중립색(LAYER_COLOR.asBuilt)으로 그린다 — 정상/도면외 같은 판정색을
+      // 쓰면 존재하지 않는 판정을 지어내는 거짓이 된다. 「시공 철근」 칩이 계속
+      // showScanBars를 통해 이 표시를 껐다 켰다 할 수 있게 한다.
+      const color = hex(LAYER_COLOR.asBuilt);
+      for (const sc of scan) {
+        const group = rebarGroup(sc, color, 1);
         s.overlay.add(group);
-        s.keyed.set(key, group);
+        s.keyed.set(sc.id, group);
+      }
+    } else {
+      const designById = new Map(design.map((r) => [r.id, r]));
+      const scanById = new Map(scan.map((r) => [r.id, r]));
+      for (const rec of records) {
+        if (!showVerdicts.includes(rec.verdict)) continue;
+        const key = rec.designId ?? rec.scanId ?? "";
+        const color = VERDICT_COLOR[rec.verdict];
+        let group: THREE.Group | null = null;
+        if (rec.verdict === "missing" && rec.designId) {
+          const d = designById.get(rec.designId);
+          if (d) group = rebarGroup(d, color, 0.45); // 설계 위치 고스트
+        } else if (rec.scanId) {
+          const sc = scanById.get(rec.scanId);
+          if (sc) group = rebarGroup(sc, color, 1);
+        }
+        if (group) {
+          s.overlay.add(group);
+          s.keyed.set(key, group);
+        }
       }
     }
-  }, [records, design, scan, showVerdicts, showScanBars]);
+
+    // 설계모델이 없거나 숨겨진 상태에서(frameSource:"scan" 등) 오버레이가 비어 있다가
+    // 뭔가 생기는 "전환" 시점에만 카메라를 그 위로 옮긴다. 설계 고스트가 보이는 동안은
+    // 그쪽 프레이밍 이펙트가 이미 담당하므로 건드리지 않고, 매 렌더마다(예: 요구간격
+    // 입력 중 재구성) 다시 잡지도 않으며, 사용자가 카메라를 이미 조작했으면 존중한다.
+    const isEmpty = s.overlay.children.length === 0;
+    const designVisible = !!designObject && showDesign;
+    if (!isEmpty && overlayWasEmptyRef.current && !designVisible && !userMovedRef.current) {
+      const box = new THREE.Box3().setFromObject(s.overlay);
+      if (!box.isEmpty()) {
+        const size = box.getSize(new THREE.Vector3());
+        const center = box.getCenter(new THREE.Vector3());
+        const maxDim = Math.max(size.x, size.y, size.z) || 1;
+        s.camera.position.set(center.x + maxDim * 1.5, center.y + maxDim, center.z + maxDim * 1.5);
+        s.controls.target.copy(center);
+        s.controls.update();
+      }
+    }
+    overlayWasEmptyRef.current = isEmpty;
+  }, [records, design, scan, showVerdicts, showScanBars, noDesign, designObject, showDesign]);
 
   // ---- 컨투어 평면 ----
   // 정합이 실패했을 때는 호출부(Task 7)가 contour에 null을 넘긴다. 실패한 정합의
