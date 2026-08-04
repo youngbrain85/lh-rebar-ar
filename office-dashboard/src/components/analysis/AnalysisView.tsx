@@ -13,13 +13,12 @@ import type * as THREE from "three";
 import {
   buildContourField, CONTOUR_COLORS, contourColor, DEFAULT_CONTOUR_MAX, type ContourSample,
 } from "../../lib/analysis/contour";
+import { barMidpoint } from "../../lib/analysis/geom";
 import { rejudgeRecords } from "../../lib/analysis/judge";
 import { assignLabels } from "../../lib/analysis/label";
 import type { AnalysisOutput } from "../../lib/analysis/pipeline";
 import { parseRebarsJson } from "../../lib/analysis/rebarsSchema";
-import {
-  barMidpoint, computeSpacing, spacingGroupKey, suggestRequiredSpacing,
-} from "../../lib/analysis/spacing";
+import { computeSpacing, spacingGroupKey, suggestRequiredSpacing } from "../../lib/analysis/spacing";
 import type {
   AnalysisResult, ClassifiedRebar, Mat4, Rebar, RebarRecord, Verdict,
 } from "../../lib/analysis/types";
@@ -108,7 +107,19 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
           ) {
             setSavedRecords(prev.rebars);
             setTolerance(prev.toleranceMm);
-            if (prev.requiredSpacingMm) setRequiredSpacing(prev.requiredSpacingMm);
+            if (prev.requiredSpacingMm) {
+              // computeSpacing의 `requiredMm[key] ?? med`는 `??`라 0을 유효값으로 통과시킨다.
+              // 저장된 0(또는 음수·비정상값)을 그대로 로드하면 해당 그룹이 최상위 색으로
+              // 포화된 채 analyze()의 merge(`{ ...suggested, ...requiredSpacing }`)를 거쳐
+              // 재분석 후에도 되살아난다 — 입력창의 유효성 검사(finite && > 0)를 로드
+              // 시점에도 똑같이 적용해야 이 구멍이 막힌다.
+              const cleaned = Object.fromEntries(
+                Object.entries(prev.requiredSpacingMm).filter(
+                  ([, v]) => typeof v === "number" && Number.isFinite(v) && v > 0,
+                ),
+              );
+              setRequiredSpacing(cleaned);
+            }
             if (Array.isArray(prev.registration?.matrix) && prev.registration.matrix.length === 16) {
               setSavedMatrix(prev.registration.matrix);
             }
@@ -142,6 +153,11 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
         out.rebars = assignLabels(out.rebars, out.designClassified, out.scanTransformed, out.families);
         setOutput(out);
         setSavedRecords(null);
+        // 편차 지도 칩은 기본 체크 상태로 렌더되므로, 사용자가 직접 눌러야만 발동하는
+        // onChange 가드로는 "분석 실행 → 지도가 뜨는" 기본 경로에서 한 번도 실행되지
+        // 않는다. 설계 고스트가 지도를 덮는 걸 막으려면 분석 성공 시점에도 같은 규칙을
+        // 적용해야 한다. 칩의 onChange는 그대로 둬 사용자가 다시 켤 수 있게 한다.
+        if (showContour) setShowDesign(false);
         if (!out.registration.failed) {
           // 그룹 실측 중앙값으로 기본값을 제안하되, 사용자가 이미 입력해 둔 값은 덮지 않는다
           const suggested = suggestRequiredSpacing(out.spacing.groups);
@@ -178,7 +194,10 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
         setError(e instanceof Error ? e.message : String(e));
       }
     },
-    [designRebars, scanRebars, tolerance, run, scan.site_id, scan.scan_id, arId, requiredSpacing],
+    [
+      designRebars, scanRebars, tolerance, run, scan.site_id, scan.scan_id, arId,
+      requiredSpacing, showContour,
+    ],
   );
 
   const changeMetric = useCallback((v: string) => {
@@ -437,6 +456,9 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
             {metric === "spacing" ? (
               <Box>
                 <Text size="xs" fw={600} mb={4}>요구 간격 (mm)</Text>
+                <Text size="xs" c="dimmed" mb={4}>
+                  순간격 20mm 미만 구간은 이음으로 보고 측정에서 제외됩니다.
+                </Text>
                 <Stack gap={4}>
                   {spacingGroups.map((g) => {
                     const key = spacingGroupKey(g.direction, g.layer);
@@ -530,7 +552,11 @@ export default function AnalysisView({ scan, arId }: { scan: ScanMeta; arId: str
                             onClick={() => setFocusKey(key)}>
                             <Table.Td title={key}>{r.label ?? key}</Table.Td>
                             <Table.Td>
-                              {familyLabel(r.direction)}·{r.layer === "outer" ? "외측" : "내측"}
+                              {/* 저장된 결과를 다시 열면 output이 null이라 familyLabel이 원본
+                                  id(v1/h1/d1)를 그대로 반환한다 — 저장 시점에 구운
+                                  directionLabel(세로/사재 45° 등)을 우선 쓴다. */}
+                              {r.directionLabel ?? familyLabel(r.direction)}·
+                              {r.layer === "outer" ? "외측" : "내측"}
                             </Table.Td>
                             <Table.Td ta="right" ff="monospace">
                               {r.deviationMm ? r.deviationMm.mean.toFixed(1) : "—"}

@@ -1,7 +1,7 @@
 // 표시용 간략명 부여 — 원본 모델의 긴 요소명 대신 "세로-내측-1" 형식으로 보여준다.
 // 번호는 (방향군, 레이어) 그룹 내 위치순: 각 철근군 축에 수직인 성분으로 줄을 세운다.
 // 반환 배열은 그룹·번호순으로 정렬돼 있어 테이블 표시 순서로 그대로 쓴다.
-import { dot, samplePolyline } from "./geom";
+import { barMidpoint, dot } from "./geom";
 import type { ClassifiedRebar, DirectionFamily, RebarRecord, Vec3 } from "./types";
 
 const LAYER_KO = { inner: "내측", outer: "외측" } as const;
@@ -33,7 +33,7 @@ export function assignLabels(
       (rec.designId != null ? designById.get(rec.designId) : undefined) ??
       (rec.scanId != null ? scanById.get(rec.scanId) : undefined);
     if (!rebar) return [Infinity, Infinity, Infinity];
-    const mid = samplePolyline(rebar.centerline, 3)[1];
+    const mid = barMidpoint(rebar);
     const ax = axisOf.get(rec.direction);
     if (!ax) return mid;
     const along = dot(mid, ax);

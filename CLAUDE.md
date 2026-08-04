@@ -253,6 +253,19 @@ The app normally fetches tokens from the dashboard at runtime; the embedded
 (button removals, label occlusion, fine-adjust reset, Visual SLAM). The LiDAR
 scan app section of that document belongs to a **different repo and is out of scope here**.
 
+**Known limitation — registration can lock onto a 90°-wrong basin for near-square walls:**
+`coarseCandidates` in `office-dashboard/src/lib/analysis/registration.ts` builds its 4 initial-guess
+candidates by pairing the scan's PCA eigenvectors with the design's **by position** (1st axis ↔ 1st
+axis, 2nd ↔ 2nd), not by chirality. When a wall's two in-plane extents are within ~10% of each other
+(common for roughly square panels), the eigenvector ordering sits near a swap boundary — a single
+extra or missing rebar in the scan can flip which eigenvector comes first, sending the initial guess
+90° off into a stable-but-wrong ICP basin. Degradation is graceful, not silent: the trimmed-RMS gate
+(fails registration above 30mm, see `registerAndRefine`) catches the bad basin, so the user sees
+"자동 정합 실패" and the manual initial-transform controls (X/Y/Z + yaw nudge, `AnalysisView.tsx`)
+rather than a wrong answer being presented as good. Proper fix is pairing eigenvectors by chirality
+instead of position — a change to the registration core, deliberately out of scope for the
+direction-family/contour branch that surfaced this.
+
 ---
 
 ## 9. External accounts / IDs

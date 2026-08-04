@@ -57,6 +57,14 @@ export function samplePolyline(line: Vec3[], n: number): Vec3[] {
   return out;
 }
 
+/**
+ * 철근 중심선의 호길이 중점. 2점짜리 중심선에서 `line[length/2]`는 끝점이므로
+ * 반드시 이 함수를 쓸 것. classify·label·spacing·컨투어 위치 지표가 모두 공유한다.
+ */
+export function barMidpoint(r: { centerline: Vec3[] }): Vec3 {
+  return samplePolyline(r.centerline, 3)[1];
+}
+
 /** 대칭 폴리라인 거리: a샘플→b 최소거리와 b샘플→a 최소거리의 전체 평균/최대 (미터) */
 export function polylineDistance(a: Vec3[], b: Vec3[], samples = 16): { mean: number; max: number } {
   const ds: number[] = [];

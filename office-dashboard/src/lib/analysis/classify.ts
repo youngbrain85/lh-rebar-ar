@@ -1,5 +1,5 @@
 // 방향군·레이어(외측/내측) 분류 — 방향은 direction.ts가 뽑은 군에 배정한다
-import { dot, normalize, pca, samplePolyline } from "./geom";
+import { barMidpoint, dot, normalize, pca, samplePolyline } from "./geom";
 import { assignFamily, barAxis } from "./direction";
 import type { ClassifiedRebar, DirectionFamily, Rebar, Vec3 } from "./types";
 
@@ -21,7 +21,7 @@ export function classifyRebars(
 
   // 1D 투영값으로 2-means
   const proj = rebars.map((r) => {
-    const mid = samplePolyline(r.centerline, 3)[1];
+    const mid = barMidpoint(r);
     return dot(mid, n);
   });
   let c0 = Math.min(...proj), c1 = Math.max(...proj);

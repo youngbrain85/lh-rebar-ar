@@ -97,8 +97,9 @@ export interface AnalysisResult {
   toleranceMm: number;
   /**
    * 방향군. 라벨 자체는 이미 RebarRecord.label/directionLabel에 구워져 저장되므로
-   * "라벨 복원"용이 아니다 — 재방문 시 **그룹 정렬 순서**(각도순, id 사전순이 아님)와
-   * 요구간격 입력칸 이름에 쓴다.
+   * "라벨 복원"용이 아니다. 원래는 재방문 시 그룹 정렬 순서·요구간격 입력칸 이름에
+   * 쓰려 했으나, 현재 로드 경로(AnalysisView의 prevRes 처리)는 이 필드를 state로
+   * 읽어들이지 않는다 — 저장만 되고 아직 다시 읽히지는 않는 필드다.
    */
   families: DirectionFamily[];
   /** 그룹별 요구 간격 (mm). key = `${direction}/${layer}` */

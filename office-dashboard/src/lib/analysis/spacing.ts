@@ -1,7 +1,7 @@
 // 인접 철근 간격 계산 — 같은 (방향군, 레이어) 안에서 벽면을 가로지르는 순서로 줄을 세우고
 // 이웃한 두 철근 사이 거리를 잰다. KDS가 규정하는 것이 간격이므로 이 값이 기본 지표다.
 import { canonicalAxis } from "./direction";
-import { cross, dot, norm, normalize, samplePolyline } from "./geom";
+import { barMidpoint, cross, dot, norm, normalize } from "./geom";
 import type { ClassifiedRebar, DirectionFamily, DirectionId, Layer, Vec3 } from "./types";
 
 /**
@@ -68,14 +68,6 @@ function median(xs: number[]): number {
   const s = [...xs].sort((a, b) => a - b);
   const mid = Math.floor(s.length / 2);
   return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
-}
-
-/**
- * 철근 중심선의 호길이 중점. 2점짜리 중심선에서 `line[length/2]`는 끝점이므로
- * 반드시 이 함수를 쓸 것. 간격·위치 두 지표가 공유한다.
- */
-export function barMidpoint(r: { centerline: Vec3[] }): Vec3 {
-  return samplePolyline(r.centerline, 3)[1];
 }
 
 export function computeSpacing(
