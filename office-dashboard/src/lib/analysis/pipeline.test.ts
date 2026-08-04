@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { mat4Identity } from "./geom";
+import { mat4FromRotTrans, mat4Identity } from "./geom";
 import { runAnalysis } from "./pipeline";
 import { spacingGroupKey } from "./spacing";
-import { jitterRebars, makeWallGrid, offsetRebar, rigidMat4, transformRebars } from "./testFixtures";
+import {
+  jitterRebars, makeDiagonalFamilyGrid, makeWallGrid, offsetRebar, rigidMat4, transformRebars,
+} from "./testFixtures";
 import type { Rebar } from "./types";
 
 const UP: [number, number, number] = [0, 1, 0];
@@ -107,5 +109,80 @@ describe("runAnalysis: 방향군과 간격", () => {
     const g = out.spacing.gaps.find((x) => spacingGroupKey(x.direction, x.layer) === key)!;
     expect(g.requiredMm).toBe(100);
     expect(g.deviationMm).toBeCloseTo(g.spacingMm - 100, 6);
+  });
+});
+
+describe("runAnalysis: frameSource=\"scan\" — 설계모델 없이 분석", () => {
+  // 벽(makeWallGrid, XY평면·법선 Z)을 x축 기준 90° 돌려 "바닥판형" 설계를 만든다.
+  // rigidMat4는 up(Y)축 요(yaw) 회전만 지원해 이 회전을 표현할 수 없으므로,
+  // mat4FromRotTrans에 직접 행:  [1,0,0 / 0,0,-1 / 0,1,0] (x축 +90°)을 넣어 만든다.
+  // 결과: (x,y,z) → (x,-z,y) — 법선이 up(Y)과 나란해져 실제 바닥판(발주처 site 1)과
+  // 같은 성질(벽과 다른 배향)을 갖는다.
+  const slabRotation = mat4FromRotTrans([1, 0, 0, 0, 0, -1, 0, 1, 0], [0, 0, 0]);
+  const makeSlabDesign = () => transformRebars(makeWallGrid(), slabRotation);
+  const UP: [number, number, number] = [0, 1, 0];
+
+  it("핵심 회귀: 같은 스캔이면 설계가 벽이든 바닥판이든 간격 결과가 완전히 같다", () => {
+    const scan = makeWallGrid().map((r, i) => ({ ...r, id: `s${i}` }));
+    const wallDesign = makeWallGrid();
+    const slabDesign = makeSlabDesign();
+
+    const withWallDesign = runAnalysis({
+      design: wallDesign, scan, toleranceMm: 10, up: UP, frameSource: "scan",
+    });
+    const withSlabDesign = runAnalysis({
+      design: slabDesign, scan, toleranceMm: 10, up: UP, frameSource: "scan",
+    });
+
+    // 프레임(법선·방향군)과 그로부터 파생되는 간격이 설계와 완전히 무관해야 한다.
+    expect(withSlabDesign.wallNormal).toEqual(withWallDesign.wallNormal);
+    expect(withSlabDesign.families).toEqual(withWallDesign.families);
+    expect(withSlabDesign.spacing).toEqual(withWallDesign.spacing);
+    expect(withSlabDesign.plane).toEqual(withWallDesign.plane);
+
+    // 대조군: "design" 모드(기본값)에서는 같은 두 설계가 서로 다른 프레임을 만들어
+    // 간격이 달라진다 — 이 대조가 없으면 위 일치가 "그냥 뭘 해도 같은 값이 나오는"
+    // 우연인지, frameSource:"scan"이 실제로 설계 의존성을 끊었기 때문인지 구별할 수 없다.
+    const designModeWall = runAnalysis({ design: wallDesign, scan, toleranceMm: 10, up: UP });
+    const designModeSlab = runAnalysis({ design: slabDesign, scan, toleranceMm: 10, up: UP });
+    expect(designModeSlab.spacing).not.toEqual(designModeWall.spacing);
+  });
+
+  it("design: [] 이어도 예외 없이 동작한다", () => {
+    const scan = makeWallGrid().map((r, i) => ({ ...r, id: `s${i}` }));
+    const out = runAnalysis({ design: [], scan, toleranceMm: 10, up: UP, frameSource: "scan" });
+    expect(out.registration.failed).toBe(false);
+    expect(out.spacing.gaps.length).toBeGreaterThan(0);
+  });
+
+  it("정합은 시도조차 하지 않는다 — method: \"none\", failed: false, 항등행렬", () => {
+    const scan = makeWallGrid().map((r, i) => ({ ...r, id: `s${i}` }));
+    const out = runAnalysis({
+      design: makeSlabDesign(), scan, toleranceMm: 10, up: UP, frameSource: "scan",
+    });
+    expect(out.registration.method).toBe("none");
+    expect(out.registration.failed).toBe(false);
+    expect(out.registration.matrix).toEqual(mat4Identity());
+  });
+
+  it("매칭·판정 결과는 지어내지 않는다 — rebars/designClassified 빈 배열, summary 0", () => {
+    const scan = makeWallGrid().map((r, i) => ({ ...r, id: `s${i}` }));
+    const out = runAnalysis({
+      design: makeWallGrid(), scan, toleranceMm: 10, up: UP, frameSource: "scan",
+    });
+    expect(out.rebars).toEqual([]);
+    expect(out.designClassified).toEqual([]);
+    expect(out.summary).toEqual({
+      designCount: 0, scanCount: 0, matched: 0, missing: 0, extra: 0,
+      outOfTolerance: 0, deviationMm: null, byGroup: [],
+    });
+  });
+
+  it("방향군은 설계가 아니라 스캔에서 뽑는다 — 설계에 없는 45° 사재도 스캔에 있으면 잡힌다", () => {
+    // 설계는 세로/가로 두 군뿐인 평범한 벽, 스캔에만 45° 사재군이 섞여 있다.
+    const design = makeWallGrid();
+    const scan = makeDiagonalFamilyGrid().map((r, i) => ({ ...r, id: `s${i}` }));
+    const out = runAnalysis({ design, scan, toleranceMm: 10, up: UP, frameSource: "scan" });
+    expect(out.families.some((f) => f.label.startsWith("사재"))).toBe(true);
   });
 });
