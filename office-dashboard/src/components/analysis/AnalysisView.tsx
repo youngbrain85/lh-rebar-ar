@@ -8,7 +8,7 @@ import {
   Alert, Badge, Box, Button, Card, Center, Checkbox, Chip, Group, Loader, NumberInput,
   Paper, ScrollArea, SegmentedControl, SimpleGrid, Slider, Stack, Table, Text,
 } from "@mantine/core";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
 import type * as THREE from "three";
 import {
   buildContourField, CONTOUR_COLORS, contourColor, DEFAULT_CONTOUR_MAX, type ContourSample,
@@ -16,8 +16,12 @@ import {
 import { barMidpoint } from "../../lib/analysis/geom";
 import { rejudgeRecords } from "../../lib/analysis/judge";
 import { assignLabels } from "../../lib/analysis/label";
-import { frameOfMethod, usableRequiredSpacing, type AnalysisOutput } from "../../lib/analysis/pipeline";
+import type { AnalysisOutput } from "../../lib/analysis/pipeline";
 import { parseRebarsJson } from "../../lib/analysis/rebarsSchema";
+import {
+  INITIAL_REQUIRED_SPACING_STATE, requiredSpacingReducer, usableRequiredSpacing,
+  type FrameSource,
+} from "../../lib/analysis/requiredSpacingState";
 import { computeSpacing, spacingGroupKey, suggestRequiredSpacing } from "../../lib/analysis/spacing";
 import type {
   AnalysisResult, ClassifiedRebar, Mat4, Rebar, RebarRecord, Verdict,
@@ -86,15 +90,20 @@ export default function AnalysisView({
   const [metric, setMetric] = useState<"spacing" | "position">("spacing");
   const [showContour, setShowContour] = useState(true);
   const [contourMax, setContourMax] = useState<number>(DEFAULT_CONTOUR_MAX.spacing);
-  /** 그룹별 요구 간격 (mm). key = `${direction}/${layer}` */
-  const [requiredSpacing, setRequiredSpacing] = useState<Record<string, number>>({});
   /**
-   * requiredSpacing의 키(directionId/layer)가 어느 프레임에서 나온 것인지. directionId는
-   * 프레임(design 대 scan)마다 다시 배정되므로, 값과 프레임을 항상 짝으로 들고 있다가
-   * "지금 분석을 돌릴 프레임"과 일치할 때만 쓴다(아래 analyze()). 마운트 시점 체크박스
-   * 잔상과 비교하는 방식은 쓰지 않는다 — 그 잔상 자체가 이 값을 만든 프레임과 무관하다.
+   * 그룹별 요구 간격(mm, key = `${directionId}/${layer}`)과 그 값이 나온 프레임을
+   * 하나의 상태로 묶어 리듀서로 관리한다 — directionId는 프레임(design 대 scan)마다
+   * 다시 배정되므로, 값과 프레임이 짝이 안 맞으면 다른 물리적 그룹의 값을 갖다 쓰게
+   * 된다. "사용자가 체크박스를 눌렀다"(userToggledFrame)와 "로드가 저장된 결과의
+   * method에 맞춰 체크박스를 동기화했다"(loadedResult)는 결과적으로 noDesignMode를
+   * 똑같이 바꾸지만 리듀서에는 서로 다른 이벤트로 도착한다 — 이 구분이 없으면(예:
+   * noDesignMode 하나만 보는 useEffect) 로드 직후의 동기화가 "사용자가 눌렀다"로
+   * 오인되어 방금 로드한, 프레임이 이미 맞는 값을 지워버린다(3라운드째 반복된 버그).
+   * 자세한 사정은 requiredSpacingState.ts 상단 주석 참조.
    */
-  const [requiredSpacingFrame, setRequiredSpacingFrame] = useState<"design" | "scan">("design");
+  const [requiredSpacingState, dispatchRequiredSpacing] = useReducer(
+    requiredSpacingReducer, INITIAL_REQUIRED_SPACING_STATE,
+  );
 
   // ---- 입력 데이터 로드: 설계 + 스캔 + 기존 결과 ----
   useEffect(() => {
@@ -135,20 +144,10 @@ export default function AnalysisView({
             setTolerance(prev.toleranceMm);
             const method = prev.registration?.method ?? null;
             setSavedMethod(method);
-            if (prev.requiredSpacingMm) {
-              // 그룹 키(`${directionId}/${layer}`)는 프레임에 종속적이다 — directionId(v1/h1/…)는
-              // 프레임(design 대 scan)마다 다시 배정되므로, 같은 키가 물리적으로 다른 그룹을
-              // 가리킬 수 있다. "지금 모드"와 비교해 거부하는 대신, 이 값을 만든 프레임을
-              // 저장된 결과 자신의 method로부터 복원해(frameOfMethod) 값과 함께 짝지어
-              // 둔다 — 실제로 쓸지는 analyze()가 "그 순간의" 프레임과 비교해 결정한다.
-              const cleaned = Object.fromEntries(
-                Object.entries(prev.requiredSpacingMm).filter(
-                  ([, v]) => typeof v === "number" && Number.isFinite(v) && v > 0,
-                ),
-              );
-              setRequiredSpacing(cleaned);
-              setRequiredSpacingFrame(frameOfMethod(method));
-            }
+            // loadedResult는 "지금 모드"와 비교하지 않는다 — 저장된 결과 자신의 method가
+            // map의 프레임을 확정하므로 항상 짝이 맞는다. requiredSpacingMm이 아예 없어도
+            // 디스패치해 프레임만이라도 맞춰 둔다(다음 analyze()가 참조할 기준이 된다).
+            dispatchRequiredSpacing({ type: "loadedResult", method, map: prev.requiredSpacingMm ?? {} });
             if (Array.isArray(prev.registration?.matrix) && prev.registration.matrix.length === 16) {
               setSavedMatrix(prev.registration.matrix);
             }
@@ -179,14 +178,12 @@ export default function AnalysisView({
       if (!designRebars || !scanRebars) return;
       setError(null);
       setSaveWarning(null);
-      // 지금 이 실행이 어느 프레임인지, 그리고 state의 requiredSpacing이 그 프레임에서
-      // 나온 게 맞는지 — 맞을 때만 쓴다. 어긋나면(예: 설계 모드에서 만든 값이 아직
-      // state에 남아 있는데 스캔 모드로 막 전환한 직후) 빈 값에서 시작해 그룹 실측
-      // 중앙값 폴백에 맡긴다. 이 판단을 "체크박스가 지금 몇 번째로 바뀌었는지"가 아니라
-      // requiredSpacing 자신에 붙여둔 프레임표(requiredSpacingFrame)로 하므로, 마운트
-      // 타이밍이나 다른 스캔에서 넘어온 체크박스 잔상과 무관하게 항상 맞는 답을 낸다.
-      const currentFrame: "design" | "scan" = noDesignMode ? "scan" : "design";
-      const usable = usableRequiredSpacing(requiredSpacing, requiredSpacingFrame, currentFrame);
+      // 지금 이 실행이 어느 프레임인지, 그리고 requiredSpacingState의 map이 그
+      // 프레임에서 나온 게 맞는지 — 맞을 때만 쓴다. 어긋나면(예: 설계 모드에서 만든
+      // 값이 아직 state에 남아 있는데 스캔 모드로 막 전환한 직후) 빈 값에서 시작해
+      // 그룹 실측 중앙값 폴백에 맡긴다.
+      const currentFrame: FrameSource = noDesignMode ? "scan" : "design";
+      const usable = usableRequiredSpacing(requiredSpacingState, currentFrame);
       try {
         const out = await run({
           design: designRebars, scan: scanRebars,
@@ -216,12 +213,15 @@ export default function AnalysisView({
           // 사라진다.
           if (showContour) setShowDesign(false);
           // 그룹 실측 중앙값으로 기본값을 제안하되, 사용자가 이미 입력해 둔(같은 프레임의)
-          // 값은 덮지 않는다. merged는 이 실행(currentFrame)에서 나온 값이므로 그 프레임과
-          // 짝지어 다시 저장한다 — 다음 analyze() 호출도 같은 판단을 할 수 있게.
-          const suggested = suggestRequiredSpacing(out.spacing.groups);
-          const merged = { ...suggested, ...usable };
-          setRequiredSpacing(merged);
-          setRequiredSpacingFrame(currentFrame);
+          // 값은 덮지 않는다. 리듀서를 직접 호출해(순수 함수라 부작용 없음) 저장 페이로드에
+          // 쓸 merged를 동기적으로 얻고, 같은 이벤트를 dispatch해 실제 state도 갱신한다 —
+          // 두 번 계산하지 않고 한 번의 진실을 공유한다.
+          const analyzedEvent = {
+            type: "analyzed" as const, frame: currentFrame,
+            suggested: suggestRequiredSpacing(out.spacing.groups),
+          };
+          const merged = requiredSpacingReducer(requiredSpacingState, analyzedEvent).map;
+          dispatchRequiredSpacing(analyzedEvent);
           const result: AnalysisResult = {
             version: 2, scanId: scan.scan_id, arId,
             registration: {
@@ -255,7 +255,7 @@ export default function AnalysisView({
     },
     [
       designRebars, scanRebars, tolerance, run, scan.site_id, scan.scan_id, arId,
-      requiredSpacing, requiredSpacingFrame, showContour, noDesignMode,
+      requiredSpacingState, showContour, noDesignMode,
     ],
   );
 
@@ -265,18 +265,15 @@ export default function AnalysisView({
     setContourMax(DEFAULT_CONTOUR_MAX[m]);
   }, []);
 
-  // (CRITICAL, 리뷰 지적) 요구 간격은 프레임 전환에서 살아남으면 안 된다. 그룹 키
-  // (`${directionId}/${layer}`)의 directionId(v1/h1/…)는 프레임마다 다시 배정되므로,
-  // 설계 모드에서 입력/제안된 값이 스캔 모드로 넘어가면(또는 그 반대로) 같은 키가
-  // 물리적으로 다른 그룹을 가리켜 조작된 편차(+100mm급)가 표에 찍힌다 — 체크박스를
-  // 어느 방향으로 넘기든(진입/이탈 둘 다) 화면(요구 간격 입력칸)에 남은 값을 비운다.
-  // analyze()의 프레임표 비교가 실제 분석 호출에서는 이미 이 값을 걸러내지만, 그
-  // 이펙트가 끝나기 전까지 입력칸이 다른 프레임의 숫자를 계속 보여주는 건 그 자체로
-  // 혼란스럽다 — 여기서 즉시 지우고 새 프레임표를 붙여 둔다.
-  useEffect(() => {
-    setRequiredSpacing({});
-    setRequiredSpacingFrame(noDesignMode ? "scan" : "design");
-  }, [noDesignMode]);
+  // (3차 리뷰, BLOCKING) 여기 있던 "noDesignMode가 바뀌면 requiredSpacing을 비운다"
+  // useEffect는 삭제했다 — 그 자리가 버그의 근원이었다. noDesignMode는 사용자가
+  // 체크박스를 눌러도, 로드가 저장된 결과의 method에 맞춰 동기화해도 똑같이 바뀌는데,
+  // useEffect는 그 결과값만 보므로 둘을 구분할 수 없었다. 로드 직후의 동기화도
+  // "사용자가 눌렀다"로 오인해, 방금 loadedResult로 들여온(프레임이 이미 맞는) 값을
+  // 지워버렸다 — 발주처 전 현장이 method:"none"으로 저장되는 이 브랜치의 주력
+  // 경로에서 항상 벌어졌다. 이제 requiredSpacingState는 userToggledFrame과
+  // loadedResult를 서로 다른 이벤트로 받으므로(체크박스 onChange가 전자를, 로드
+  // 이펙트가 후자를 디스패치한다) 이 클래스의 버그 자체가 구조적으로 불가능하다.
 
   // 체크박스가 켜지면 이 화면을 "간격 편차만" 모드로 고정한다 — 위치 편차는 설계 없이는
   // 정의되지 않고(비교 대상이 없다), 정합되지 않은 설계 고스트는 노이즈일 뿐이다.
@@ -315,8 +312,15 @@ export default function AnalysisView({
    */
   const spacing = useMemo(() => {
     if (!output || output.registration.failed) return null;
-    return computeSpacing(output.scanTransformed, output.families, output.wallNormal, requiredSpacing);
-  }, [output, requiredSpacing]);
+    // 여기서는 usableRequiredSpacing으로 프레임을 다시 확인하지 않는다 — output의
+    // 프레임이 바뀌는 유일한 경로(analyze() 성공)가 requiredSpacingState도 같은
+    // 프레임으로 함께 갱신하므로(analyzed 이벤트), 이 둘은 항상 같이 움직인다. 체크박스만
+    // 토글된 경우(아직 재분석 전) map은 이미 비어 있어({}) 폴백(중앙값)으로 안전하게
+    // 떨어진다 — 지어낼 값이 없다.
+    return computeSpacing(
+      output.scanTransformed, output.families, output.wallNormal, requiredSpacingState.map,
+    );
+  }, [output, requiredSpacingState]);
 
   /** 위치 편차 지표의 표본: 시공 철근 중점 + 그 철근의 편차 */
   const positionSamples = useMemo<ContourSample[]>(() => {
@@ -508,7 +512,13 @@ export default function AnalysisView({
           size="xs"
           label="설계모델 없이 분석 (간격 편차만)"
           checked={noDesignMode}
-          onChange={(e) => onNoDesignModeChange(e.currentTarget.checked)}
+          onChange={(e) => {
+            const checked = e.currentTarget.checked;
+            onNoDesignModeChange(checked);
+            // 사용자가 직접 눌렀다 — userToggledFrame. 로드 이펙트가 같은 noDesignMode를
+            // 동기화할 때는(loadedResult) 이 핸들러를 거치지 않으므로 서로 섞이지 않는다.
+            dispatchRequiredSpacing({ type: "userToggledFrame", frame: checked ? "scan" : "design" });
+          }}
         />
 
         {error && <Alert color="red">{error}</Alert>}
@@ -605,20 +615,14 @@ export default function AnalysisView({
                         </Text>
                         <NumberInput
                           size="xs" w={92} step={5} min={10}
-                          value={requiredSpacing[key] ?? Math.round(g.medianMm / 5) * 5}
+                          value={requiredSpacingState.map[key] ?? Math.round(g.medianMm / 5) * 5}
                           onChange={(v) => {
                             const n = Number(v);
-                            setRequiredSpacing((prev) => {
-                              // 빈칸·0·음수는 "지정 안 함"으로 되돌려 중앙값 폴백을 살린다.
-                              // 0을 저장하면 computeSpacing의 `?? med`가 0을 유효값으로 받아
-                              // (?? 는 0을 통과시킨다) 그룹 전체가 최상위 색으로 포화된다.
-                              if (!Number.isFinite(n) || n <= 0) {
-                                const next = { ...prev };
-                                delete next[key];
-                                return next;
-                              }
-                              return { ...prev, [key]: n };
-                            });
+                            // 빈칸·0·음수는 "지정 안 함"(null)으로 보내 중앙값 폴백을 살린다.
+                            // 0을 저장하면 computeSpacing의 `?? med`가 0을 유효값으로 받아
+                            // (?? 는 0을 통과시킨다) 그룹 전체가 최상위 색으로 포화된다.
+                            const value = Number.isFinite(n) && n > 0 ? n : null;
+                            dispatchRequiredSpacing({ type: "userEdited", key, value });
                           }}
                         />
                       </Group>

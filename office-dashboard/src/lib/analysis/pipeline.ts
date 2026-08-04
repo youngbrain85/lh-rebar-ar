@@ -83,42 +83,9 @@ function runScanFrameAnalysis(input: AnalysisInput): AnalysisOutput {
   };
 }
 
-/**
- * 정합 방식(RegistrationResult.method)으로부터 그 결과가 어느 프레임에서 나왔는지
- * 되돌린다. `spacingGroupKey`(`${directionId}/${layer}`)의 directionId(`v1`/`h1`/…)는
- * `deriveDirectionFamilies`가 프레임(design 대 scan)마다 다시 배정하는 값이라(아래
- * "그룹 키는 프레임에 종속적이다" 테스트가 실측으로 고정해 둔 사실), 저장된
- * `requiredSpacingMm`을 다시 쓰려면 반드시 그 값이 나온 프레임을 알아야 한다.
- *
- * ★ "지금 모드"를 별도로 추정해서(예: 컴포넌트 마운트 시점의 체크박스 잔상) 저장된
- * 값과 비교하는 방식은 쓰지 않는다 — 그 잔상은 이전 스캔에서 넘어온 값일 수 있고,
- * 동기화가 반영되는 타이밍에 따라 결론이 달라진다(리뷰 지적: 이 비교 방식 자체가
- * "정상적으로 동기화될 예정인 경우에만" 거부하는 역설을 낳았다). 저장된 결과 자신이
- * 선언하는 method만이 유일하게 신뢰할 수 있는 근거이므로, 호출부(AnalysisView.tsx)는
- * 로드한 requiredSpacingMm을 항상 이 함수가 돌려주는 프레임과 "짝지어" state에 들고
- * 있다가, 실제로 분석을 돌리는 시점의 프레임과 그 짝이 맞을 때만 사용한다.
- */
-export function frameOfMethod(
-  method: "auto" | "manual" | "none" | null,
-): "design" | "scan" {
-  return method === "none" ? "scan" : "design";
-}
-
-/**
- * requiredSpacingMm 맵을 지금 프레임에서 써도 되는지 판정한다 — 맵이 만들어진 프레임
- * (mapFrame, `frameOfMethod`로 구한다)과 지금 분석을 돌릴 프레임(currentFrame)이 같을
- * 때만 그대로 돌려주고, 다르면 빈 맵으로 시작한다. `AnalysisView.tsx`의 `analyze()`가
- * `run()`에 넘길 값과, 분석 성공 후 `suggestRequiredSpacing`과 합칠 기준값 양쪽에
- * 이 함수를 쓴다 — 두 곳이 서로 다른 판정을 하면(예: 하나는 마운트 시점 잔상과 비교)
- * "값은 버려졌는데 저장은 그 값 기준으로 됐다" 같은 불일치가 생긴다.
- */
-export function usableRequiredSpacing(
-  map: Record<string, number>,
-  mapFrame: "design" | "scan",
-  currentFrame: "design" | "scan",
-): Record<string, number> {
-  return mapFrame === currentFrame ? map : {};
-}
+// frameOfMethod / usableRequiredSpacing은 requiredSpacingState.ts로 옮겼다 —
+// requiredSpacing과 그 프레임을 하나의 상태로 묶어 관리하는 리듀서(AnalysisView.tsx가
+// useReducer로 쓴다)와 같은 곳에 두어야 "출처가 두 곳"이 되지 않는다.
 
 export function runAnalysis(input: AnalysisInput): AnalysisOutput {
   if (input.frameSource === "scan") return runScanFrameAnalysis(input);
