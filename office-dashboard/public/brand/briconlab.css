@@ -38,6 +38,13 @@
   --bl-mesh: #5c7cfa; /* 스캔 메시 참조 레이어 */
   --bl-ghost: #8a94a6; /* 설계모델 고스트 */
 
+  /* 컨투어 색 — 편차 크기 5단계. 판정 색과 다른 체계이며 두 앱에서 동일하게 쓴다 */
+  --bl-contour-1: #2c7bb6;
+  --bl-contour-2: #abd9e9;
+  --bl-contour-3: #ffffbf;
+  --bl-contour-4: #fdae61;
+  --bl-contour-5: #d7191c;
+
   /* 서체 */
   --bl-font-sans: "Noto Sans KR", system-ui, -apple-system, sans-serif;
   --bl-font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", monospace;
