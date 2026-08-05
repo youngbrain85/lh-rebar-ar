@@ -38,7 +38,6 @@ permissions:
 jobs:
   build:
     name: Build (${{ matrix.app }})
-    if: ${{ github.event.inputs.app == 'both' || github.event.inputs.app == matrix.app }}
     runs-on: macos-15
     timeout-minutes: 45
     strategy:
@@ -54,19 +53,26 @@ jobs:
             bundle: kr.lh.rebar-lh
             plist: LHRebarAR/Info-LH.plist
     steps:
+      # jobs.<job_id>.if 는 matrix 컨텍스트를 못 본다(매트릭스 전개 이전에 평가됨) —
+      # GitHub이 워크플로 검증 단계에서 "Unrecognized named-value: 'matrix'"로 거부한다.
+      # 그래서 건너뛰기 조건은 잡이 아니라 각 스텝에 건다.
       - uses: actions/checkout@v4
+        if: ${{ github.event.inputs.app == 'both' || github.event.inputs.app == matrix.app }}
 
       - name: Select newest Xcode
+        if: ${{ github.event.inputs.app == 'both' || github.event.inputs.app == matrix.app }}
         run: |
           sudo xcode-select -s "$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -1)" || true
           xcodebuild -version
 
       - name: Install tools
+        if: ${{ github.event.inputs.app == 'both' || github.event.inputs.app == matrix.app }}
         run: |
           brew install xcodegen
           python3 -m pip install --break-system-packages pyjwt || python3 -m pip install pyjwt
 
       - name: Restore gitignored secrets
+        if: ${{ github.event.inputs.app == 'both' || github.event.inputs.app == matrix.app }}
         env:
           LIVESHARE_CONFIG_SWIFT: ${{ secrets.LIVESHARE_CONFIG_SWIFT }}
           ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
@@ -78,9 +84,11 @@ jobs:
           printf '%s' "$ASC_API_KEY_P8" > "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8"
 
       - name: Generate Xcode project
+        if: ${{ github.event.inputs.app == 'both' || github.event.inputs.app == matrix.app }}
         run: xcodegen generate
 
       - name: Compute next build number
+        if: ${{ github.event.inputs.app == 'both' || github.event.inputs.app == matrix.app }}
         id: bump
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
@@ -93,6 +101,7 @@ jobs:
           /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $N" ${{ matrix.plist }}
 
       - name: Archive
+        if: ${{ github.event.inputs.app == 'both' || github.event.inputs.app == matrix.app }}
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
@@ -109,6 +118,7 @@ jobs:
             -authenticationKeyIssuerID "$ASC_ISSUER_ID"
 
       - name: Export IPA
+        if: ${{ github.event.inputs.app == 'both' || github.event.inputs.app == matrix.app }}
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
@@ -124,7 +134,7 @@ jobs:
             -authenticationKeyIssuerID "$ASC_ISSUER_ID"
 
       - name: Upload to TestFlight
-        if: ${{ github.event.inputs.upload == 'true' }}
+        if: ${{ (github.event.inputs.app == 'both' || github.event.inputs.app == matrix.app) && github.event.inputs.upload == 'true' }}
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
