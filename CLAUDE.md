@@ -4,7 +4,11 @@ Auto-loaded by Claude Code in this directory. It carries decisions, hard-won
 gotchas, and the current plan across machines/sessions so a fresh session can
 continue without re-deriving anything.
 
-**Last updated**: 2026-07-23 · iOS build 32 on TestFlight · dashboard live on Vercel.
+**Last updated**: 2026-08-05 · branch `feat/ar-app-split` (PR #14, open, not merged) splitting
+the app into 철근 AR 연구 (`kr.lh.rebar-ar`) + LH 철근검측 (`kr.lh.rebar-lh`) — see §1 · research
+app build 33 already on ASC (`next_build.py` returns 34; processing state not re-checked here) ·
+LH app not yet uploaded, ASC record not yet registered (§9) · CI green for both apps' compile at
+HEAD, nothing run on a device yet · dashboard live on Vercel.
 
 ---
 
@@ -14,8 +18,13 @@ Two shipped pieces that work together for on-site rebar QA:
 
 | Piece | What it is | Where it runs |
 |---|---|---|
-| **LH Rebar AR** (iOS) | Field app: overlays the design rebar model on the real structure, measures, captures evidence, shares its AR screen live | iPhone/iPad w/ LiDAR, distributed via TestFlight |
+| **철근 AR 연구** (iOS, `kr.lh.rebar-ar`) | Research-project field app: overlays the design rebar model on the real structure, measures, captures evidence, shares its AR screen live (collaboration only — no measurement) | iPhone/iPad w/ LiDAR, distributed via TestFlight |
+| **LH 철근검측** (iOS, `kr.lh.rebar-lh`) | LH-only field app: same AR placement/adjustment/visual-lock core, but with 측정 (measurement) instead of live share — no collaboration | iPhone/iPad w/ LiDAR, distributed via TestFlight |
 | **office-dashboard** (Next.js) | Office console: site management, 3D model viewer, live AR collaboration (watch + talk + annotate) | https://office-dashboard-xi.vercel.app |
+
+Both iOS apps are built from **one Xcode project, two targets** (`LHRebarAR` /
+`LHRebarARLH`) sharing all source files; a single compile-time flag decides which
+screens each shows — see `AppFeatures.swift` and gotcha #13 in §5.
 
 Data comes from the **BriconLab backend** (`http://api.briconlab.com:50001`).
 Live video/audio/data runs over **LiveKit Cloud** (`wss://ar-w5h0quhi.livekit.cloud`).
@@ -34,11 +43,13 @@ Live video/audio/data runs over **LiveKit Cloud** (`wss://ar-w5h0quhi.livekit.cl
 | **iOS build / archive / TestFlight upload** | ❌ Xcode is macOS-only | ✅ |
 
 **To release the iOS app from Windows (no local Mac): use the CI.** The GitHub
-Actions workflow `.github/workflows/ios-testflight.yml` builds + uploads to
-TestFlight on a macOS runner. Trigger it from the Actions tab → "Run workflow",
-or `gh workflow run ios-testflight.yml`. It needs the repo secrets listed in
-§6 → CI (notably an **Admin** ASC API key — the upload-only key `5J8MLZ4426`
-cannot cloud-sign). Local `scripts/release.sh` is the Mac-only equivalent.
+Actions workflow `.github/workflows/ios-testflight.yml` builds either or both
+apps on a macOS runner, and optionally uploads to TestFlight — see §6 → Ship
+an iOS build for the exact command and its two inputs (`app`, `upload`). It
+needs the repo secrets listed in §6 → CI (notably an **Admin** ASC API key —
+the upload-only key `5J8MLZ4426` cannot cloud-sign). Local `scripts/release.sh`
+is the Mac-only equivalent (research app only; it does not yet know about the
+LH target).
 
 ### Secrets to restore
 
@@ -181,6 +192,11 @@ screen is the device screen, so the field app raycasts that point directly.
 10. **Adding a new Swift file requires `xcodegen generate`** before it compiles — a "cannot find X in scope" error on a brand-new file usually means the project wasn't regenerated.
 11. **Do NOT enable the mic at LiveKit connect.** `ConnectOptions(enableMicrophone: true)` starts the audio engine during connect and can throw "Audio engine returned error code: -9000" on some devices/routes (Bluetooth, first-run permission race, init timing — LiveKit issue #849 family), which aborted the entire screen share. The mic is now **opt-in**: `LiveShareService.toggleMic()` enables it separately and swallows failures. Screen sharing must always work without the mic. (If robust always-on two-way voice is ever needed, set `AudioManager.shared.sessionConfiguration` explicitly — `.playAndRecord` / `.videoChat` / `.allowBluetooth` — instead of reverting this.)
 12. **컨투어 텍스처는 `NearestFilter`로 둔다.** 선형 보간을 켜면 색이 섞여 단계 경계가 사라지고, "몇 단계인가"를 눈으로 셀 수 없게 된다. 보간은 값(IDW)에서 이미 끝났고 색은 계단이어야 한다.
+13. **앱이 두 개다 — 기능 차이는 `AppFeatures.swift` 한 곳에만 둔다.** 발주처 요청으로 연구과제
+    앱(`kr.lh.rebar-ar`)과 LH 전용 앱(`kr.lh.rebar-lh`)으로 나뉘어 있다. 두 타겟은 **같은 소스를
+    전부** 포함하고 `LH_ONLY` 플래그 하나로 갈린다. 새 기능을 앱별로 다르게 하려면 `AppFeatures`에
+    스위치를 더하고 화면에서 그걸 읽는다. `#if LH_ONLY`를 화면 코드에 흩뿌리지 말 것 — 두 앱의
+    차이를 한 파일에서 볼 수 없게 되는 순간 유지가 어려워진다.
 
 ---
 
@@ -189,16 +205,44 @@ screen is the device screen, so the field app raycasts that point directly.
 ### Ship an iOS build
 **On a Mac:**
 ```bash
-bash scripts/release.sh          # bumps build, xcodegen, archive, export, upload
-.venv/bin/python scripts/build_status.py <build>   # poll until VALID
+bash scripts/release.sh          # 연구과제 앱(LHRebarAR)만 — bumps build, xcodegen, archive, export, upload
+.venv/bin/python scripts/build_status.py <build>   # poll until VALID (research app, default BUNDLE_ID)
+BUNDLE_ID=kr.lh.rebar-lh .venv/bin/python scripts/build_status.py <build>   # same, for the LH app
 ```
+`release.sh` does not know about the LH target yet; it hardcodes scheme
+`LHRebarAR` / bundle `kr.lh.rebar-ar`. There is no Mac-local equivalent for the
+LH app — use the CI for it. `build_status.py`'s `BUNDLE_ID` defaults to the
+research app but reads an env override (same pattern as `next_build.py`), so
+the LH app is only pollable with that override set.
+
 **From anywhere (CI, incl. Windows):** Actions tab → run **iOS TestFlight**, or
-`gh workflow run ios-testflight.yml`. Auto-distributes when processing finishes.
+`gh workflow run ios-testflight.yml -f app=<research|lh|both> -f upload=<true|false>`.
+Both inputs are **required with defaults** — a no-arg dispatch from the Actions
+UI or a bare `gh workflow run ios-testflight.yml` resolves to `app=research
+upload=false`, i.e. **it builds the research app only and does not upload**.
+To actually ship, set `upload=true` explicitly. **Auto-distributes to
+TestFlight testers when processing finishes — research app (`kr.lh.rebar-ar`)
+only.** Auto-distribution is a per-tester-group setting and tester groups are
+per-app; the research app has one because someone configured it once. The LH
+app's ASC record is brand new (§9) and has no tester group yet, so its first
+VALID build will sit in TestFlight unseen by anyone until an account owner
+creates an internal tester group for it and enables automatic distribution.
+
+`app=both` builds research and LH in parallel matrix jobs
+(`fail-fast: false`, so one job failing doesn't cancel the other).
+**Until the LH app has an App Store Connect record (§9 — still pending,
+account-owner action), only run `app=research upload=true`.** An
+`app=both upload=true` run will build both, but the LH job's upload step
+fails for lack of an ASC record and the run finishes red even though the
+research upload succeeded. Switch to `app=both` once that record exists.
 
 ### CI (GitHub Actions → `ios-testflight.yml`)
-macOS runner: restores gitignored secrets → xcodegen → next build number (ASC
-query, `scripts/next_build.py`) → archive + export with **API-key cloud
-signing** → altool upload. Required repo secrets (`gh secret set NAME`):
+macOS runner, one matrix job per selected app (scheme/bundle/plist come from
+`matrix.include`, see the workflow file): restores gitignored secrets →
+xcodegen → next build number (ASC query, `scripts/next_build.py`) → archive +
+export with **API-key cloud signing** → altool upload (only when
+`upload=true`). Both matrix jobs share the same repo secrets
+(`gh secret set NAME`):
 
 | Secret | What |
 |---|---|
@@ -272,9 +316,11 @@ direction-family/contour branch that surfaced this.
 
 | Thing | Value |
 |---|---|
-| Bundle ID | `kr.lh.rebar-ar` |
+| Bundle ID (연구과제, target `LHRebarAR`) | `kr.lh.rebar-ar` |
+| Bundle ID (LH 전용, target `LHRebarARLH`) | `kr.lh.rebar-lh` — registered 2026-08-05, ASC record created, tester group configured (all three account-owner steps done) |
 | Apple team | `G88CPAZ3MP` |
-| ASC app | LH Rebar AR (`6763446019`) — sibling `Rebar Capture` (`kr.lh.rebarcapture`) is a **different** app, don't touch |
+| ASC app (연구과제) | LH Rebar AR (`6763446019`) — sibling `Rebar Capture` (`kr.lh.rebarcapture`) is a **different** app, don't touch |
+| ASC app (LH 전용) | LH 철근검측 (`6798328356`) — poll with `BUNDLE_ID=kr.lh.rebar-lh` (§6) |
 | ASC API key | `5J8MLZ4426`, issuer `40dabd9c-8645-44e4-9754-c6eefe759320` |
 | LiveKit | project `ar-w5h0quhi`, `wss://ar-w5h0quhi.livekit.cloud` |
 | Vercel | project `office-dashboard`, alias `office-dashboard-xi.vercel.app` |

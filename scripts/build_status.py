@@ -3,11 +3,15 @@
 
 Usage:  .venv/bin/python scripts/build_status.py [target_build_number]
 
+Env: optional BUNDLE_ID (default kr.lh.rebar-ar — the research app; pass
+BUNDLE_ID=kr.lh.rebar-lh to poll the LH app once its ASC record exists).
+
 Reads the API key from ~/.appstoreconnect/private_keys/AuthKey_<KEY_ID>.p8 and
 prints the latest builds with their processingState (PROCESSING / VALID /
 INVALID / FAILED) so we can confirm a freshly uploaded build lands in TestFlight.
 """
 import json
+import os
 import sys
 import time
 import urllib.request
@@ -18,7 +22,7 @@ import jwt
 KEY_ID = "5J8MLZ4426"
 ISSUER_ID = "40dabd9c-8645-44e4-9754-c6eefe759320"
 KEY_PATH = Path.home() / ".appstoreconnect" / "private_keys" / f"AuthKey_{KEY_ID}.p8"
-BUNDLE_ID = "kr.lh.rebar-ar"
+BUNDLE_ID = os.environ.get("BUNDLE_ID", "kr.lh.rebar-ar")
 
 target = sys.argv[1] if len(sys.argv) > 1 else None
 

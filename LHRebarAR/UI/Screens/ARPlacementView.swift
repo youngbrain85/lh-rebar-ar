@@ -68,7 +68,10 @@ struct ARPlacementView: View {
                     },
                     onTap: { arView, point in
                         // Measurement mode swallows the tap; otherwise place the model.
-                        if measurement.handleTap(in: arView, at: point) { return }
+                        // 측정 기능이 꺼진 앱에서는 handleTap 자체를 호출하지 않는다 — isActive가
+                        // 항상 false라 지금은 안전하지만, 나중에 다른 setActive 호출부가 생기면
+                        // 깨질 수 있는 간접 의존을 없앤다(쉼표 조건은 단락 평가되어 뒤 항은 평가 안 됨).
+                        if AppFeatures.measurement, measurement.handleTap(in: arView, at: point) { return }
                         placement.handleTap(in: arView, at: point)
                     }
                 )
@@ -87,11 +90,14 @@ struct ARPlacementView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                     .padding(.top, 110)
 
-                liveShareBanner
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                    .padding(.top, 60)
+                // 발주처 요청으로 앱을 둘로 나눴다 — 협업(라이브 공유) 관련 UI는 연구과제 앱에서만 보인다
+                if AppFeatures.liveShare {
+                    liveShareBanner
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        .padding(.top, 60)
 
-                annotationOverlay
+                    annotationOverlay
+                }
             }
             .overlay {
                 Color.white
@@ -135,7 +141,12 @@ struct ARPlacementView: View {
                 }
             )
         }
-        .alert("측정 이름", isPresented: $showNamePrompt) {
+        // 측정 기능이 꺼진 앱(연구과제)에서는 얼럿이 뜨지 않아야 한다. 뷰 수식자(.alert)는
+        // if로 감쌀 수 없으므로 조건을 Binding 안에 넣는다
+        .alert("측정 이름", isPresented: Binding(
+            get: { AppFeatures.measurement && showNamePrompt },
+            set: { showNamePrompt = $0 }
+        )) {
             TextField("예: 가로철근-1", text: $pendingNameText)
             Button("저장") {
                 if let id = pendingNameID {
@@ -177,10 +188,10 @@ struct ARPlacementView: View {
 
                 Spacer(minLength: 0)
 
-                measurementHintBanner
+                if AppFeatures.measurement { measurementHintBanner }
                 trackingLimitedBanner
                 errorBanners
-                if measurement.isActive {
+                if AppFeatures.measurement && measurement.isActive {
                     measurementPlusButton
                         .padding(.bottom, LHSpacing.lg + 6)
                         .transition(.opacity.combined(with: .scale(scale: 0.85)))
@@ -228,8 +239,8 @@ struct ARPlacementView: View {
                         .padding(.horizontal)
                         .padding(.top, LHSpacing.lg - 2)
                     Spacer()
-                    measurementHintBanner
-                    if measurement.isActive {
+                    if AppFeatures.measurement { measurementHintBanner }
+                    if AppFeatures.measurement && measurement.isActive {
                         measurementPlusButton
                             .padding(.bottom, LHSpacing.lg + 4)
                             .transition(.opacity.combined(with: .scale(scale: 0.85)))
@@ -287,9 +298,12 @@ struct ARPlacementView: View {
             diagnosticsToggle
             meshToggle
             #endif
-            measurementToggle
-            liveShareToggle
-            if liveShare.isSharing { micToggle }
+            // 발주처 요청으로 앱을 둘로 나눴다 — 어느 앱에 무엇이 보이는지는 AppFeatures 한 곳에서 정한다
+            if AppFeatures.measurement { measurementToggle }
+            if AppFeatures.liveShare {
+                liveShareToggle
+                if liveShare.isSharing { micToggle }
+            }
             if placementActive { relockButton }
             if case .placed = placement.state { removeButton }
             if case .adjusting = placement.state { removeButton }
@@ -863,7 +877,7 @@ struct ARPlacementView: View {
                 .overlay(Circle().stroke(.white.opacity(0.7), lineWidth: 2.5))
                 .shadow(radius: 4)
         }
-        .accessibilityLabel("화면 캡처 — 측정 결과를 사진으로 저장")
+        .accessibilityLabel("화면 캡처 — 현재 AR 화면을 사진으로 저장")
     }
 
     @ViewBuilder
@@ -923,9 +937,12 @@ struct ARPlacementView: View {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd HH:mm"
         let all = measurement.measurements
-        var lines = ["LH Rebar AR · \(model.displayName) · \(formatter.string(from: Date()))"]
+        var lines = ["\(AppFeatures.appName) · \(model.displayName) · \(formatter.string(from: Date()))"]
         guard !all.isEmpty else {
-            lines.append("측정 없음")
+            // 측정 기능이 없는 앱(연구과제)은 이 줄 자체를 사진에 남기지 않는다 —
+            // "측정 없음"이라는 문구도 발주처가 요청한 분리의 흔적이 될 수 있다.
+            // LH 앱(측정 기능 있음, 아직 측정 안 함)의 기존 동작은 그대로 유지한다.
+            if AppFeatures.measurement { lines.append("측정 없음") }
             return lines
         }
         func fmt(_ m: Float) -> String {

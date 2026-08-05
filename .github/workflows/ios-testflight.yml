@@ -1,8 +1,12 @@
 name: iOS TestFlight
 
-# Build the iOS app and upload it to TestFlight from a macOS runner, so the app
-# can be released without a local Mac (e.g. from Windows). Trigger it from the
-# GitHub Actions tab ("Run workflow") or with `gh workflow run ios-testflight.yml`.
+# Build the research and/or LH iOS app on a macOS runner, and optionally upload
+# to TestFlight, so a release can happen without a local Mac (e.g. from Windows).
+# Controlled by two workflow_dispatch inputs — `app` (research/lh/both, default
+# research) and `upload` (true/false, default false) — so a no-arg dispatch only
+# builds the research app and does NOT upload. Trigger it from the GitHub Actions
+# tab ("Run workflow") or with
+#   gh workflow run ios-testflight.yml -f app=<research|lh|both> -f upload=<true|false>
 #
 # Requires these repository secrets (see CLAUDE.md → CI):
 #   ASC_KEY_ID            App Store Connect API key ID (Admin access — needed
@@ -14,6 +18,19 @@ name: iOS TestFlight
 
 on:
   workflow_dispatch:
+    inputs:
+      app:
+        description: "빌드할 앱"
+        required: true
+        default: "research"
+        type: choice
+        options: [research, lh, both]
+      upload:
+        description: "TestFlight에 업로드 (끄면 빌드만)"
+        required: true
+        default: "false"
+        type: choice
+        options: ["true", "false"]
 
 concurrency:
   group: ios-testflight
@@ -24,22 +41,42 @@ permissions:
 
 jobs:
   build:
+    name: Build (${{ matrix.app }})
     runs-on: macos-15
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - app: research
+            scheme: LHRebarAR
+            bundle: kr.lh.rebar-ar
+            plist: LHRebarAR/Info.plist
+          - app: lh
+            scheme: LHRebarARLH
+            bundle: kr.lh.rebar-lh
+            plist: LHRebarAR/Info-LH.plist
     steps:
+      # jobs.<job_id>.if 는 matrix 컨텍스트를 못 본다(매트릭스 전개 이전에 평가됨) —
+      # GitHub이 워크플로 검증 단계에서 "Unrecognized named-value: 'matrix'"로 거부한다.
+      # 그래서 건너뛰기 조건은 잡이 아니라 각 스텝에 건다.
       - uses: actions/checkout@v4
+        if: ${{ github.event.inputs.app == 'both' || github.event.inputs.app == matrix.app }}
 
       - name: Select newest Xcode
+        if: ${{ github.event.inputs.app == 'both' || github.event.inputs.app == matrix.app }}
         run: |
           sudo xcode-select -s "$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -1)" || true
           xcodebuild -version
 
       - name: Install tools
+        if: ${{ github.event.inputs.app == 'both' || github.event.inputs.app == matrix.app }}
         run: |
           brew install xcodegen
           python3 -m pip install --break-system-packages pyjwt || python3 -m pip install pyjwt
 
       - name: Restore gitignored secrets
+        if: ${{ github.event.inputs.app == 'both' || github.event.inputs.app == matrix.app }}
         env:
           LIVESHARE_CONFIG_SWIFT: ${{ secrets.LIVESHARE_CONFIG_SWIFT }}
           ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
@@ -51,43 +88,48 @@ jobs:
           printf '%s' "$ASC_API_KEY_P8" > "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8"
 
       - name: Generate Xcode project
+        if: ${{ github.event.inputs.app == 'both' || github.event.inputs.app == matrix.app }}
         run: xcodegen generate
 
       - name: Compute next build number
+        if: ${{ github.event.inputs.app == 'both' || github.event.inputs.app == matrix.app }}
         id: bump
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          BUNDLE_ID: ${{ matrix.bundle }}
         run: |
           set -euo pipefail
           N="$(python3 scripts/next_build.py)"
           echo "Next build number: $N"
-          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $N" LHRebarAR/Info.plist
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $N" ${{ matrix.plist }}
 
       - name: Archive
+        if: ${{ github.event.inputs.app == 'both' || github.event.inputs.app == matrix.app }}
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
         run: |
           set -euo pipefail
           xcodebuild archive \
-            -project LHRebarAR.xcodeproj -scheme LHRebarAR \
+            -project LHRebarAR.xcodeproj -scheme ${{ matrix.scheme }} \
             -configuration Release \
             -destination 'generic/platform=iOS' \
-            -archivePath build/LHRebarAR.xcarchive \
+            -archivePath build/${{ matrix.scheme }}.xcarchive \
             -allowProvisioningUpdates \
             -authenticationKeyPath "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8" \
             -authenticationKeyID "$ASC_KEY_ID" \
             -authenticationKeyIssuerID "$ASC_ISSUER_ID"
 
       - name: Export IPA
+        if: ${{ github.event.inputs.app == 'both' || github.event.inputs.app == matrix.app }}
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
         run: |
           set -euo pipefail
           xcodebuild -exportArchive \
-            -archivePath build/LHRebarAR.xcarchive \
+            -archivePath build/${{ matrix.scheme }}.xcarchive \
             -exportOptionsPlist ExportOptions.plist \
             -exportPath build/export \
             -allowProvisioningUpdates \
@@ -96,11 +138,12 @@ jobs:
             -authenticationKeyIssuerID "$ASC_ISSUER_ID"
 
       - name: Upload to TestFlight
+        if: ${{ (github.event.inputs.app == 'both' || github.event.inputs.app == matrix.app) && github.event.inputs.upload == 'true' }}
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
         run: |
           set -euo pipefail
           xcrun altool --upload-app --type ios \
-            --file build/export/LHRebarAR.ipa \
+            --file build/export/${{ matrix.scheme }}.ipa \
             --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
