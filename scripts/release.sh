@@ -26,7 +26,9 @@ while [[ $# -gt 0 ]]; do
 done
 
 # --- Bump build number in project.yml
-CURRENT=$(grep -E "^\s*CURRENT_PROJECT_VERSION:" project.yml | awk '{print $2}' | tr -d '"')
+# 타겟이 둘이라 grep으로는 두 값이 잡힌다. 이 스크립트는 연구과제 앱 릴리스용이므로
+# YAML을 파싱해서 LHRebarAR 타겟 값만 명시적으로 읽는다.
+CURRENT=$(python3 -c "import yaml;print(yaml.safe_load(open('project.yml',encoding='utf-8'))['targets']['LHRebarAR']['settings']['base']['CURRENT_PROJECT_VERSION'])")
 NEXT=$((CURRENT + 1))
 echo "Bumping build number: $CURRENT → $NEXT"
 sed -i '' "s/CURRENT_PROJECT_VERSION: \"$CURRENT\"/CURRENT_PROJECT_VERSION: \"$NEXT\"/" project.yml
