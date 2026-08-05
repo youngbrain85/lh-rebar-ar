@@ -68,7 +68,10 @@ struct ARPlacementView: View {
                     },
                     onTap: { arView, point in
                         // Measurement mode swallows the tap; otherwise place the model.
-                        if measurement.handleTap(in: arView, at: point) { return }
+                        // 측정 기능이 꺼진 앱에서는 handleTap 자체를 호출하지 않는다 — isActive가
+                        // 항상 false라 지금은 안전하지만, 나중에 다른 setActive 호출부가 생기면
+                        // 깨질 수 있는 간접 의존을 없앤다(쉼표 조건은 단락 평가되어 뒤 항은 평가 안 됨).
+                        if AppFeatures.measurement, measurement.handleTap(in: arView, at: point) { return }
                         placement.handleTap(in: arView, at: point)
                     }
                 )
@@ -936,7 +939,10 @@ struct ARPlacementView: View {
         let all = measurement.measurements
         var lines = ["LH Rebar AR · \(model.displayName) · \(formatter.string(from: Date()))"]
         guard !all.isEmpty else {
-            lines.append("측정 없음")
+            // 측정 기능이 없는 앱(연구과제)은 이 줄 자체를 사진에 남기지 않는다 —
+            // "측정 없음"이라는 문구도 발주처가 요청한 분리의 흔적이 될 수 있다.
+            // LH 앱(측정 기능 있음, 아직 측정 안 함)의 기존 동작은 그대로 유지한다.
+            if AppFeatures.measurement { lines.append("측정 없음") }
             return lines
         }
         func fmt(_ m: Float) -> String {
