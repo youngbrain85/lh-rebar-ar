@@ -1,8 +1,12 @@
 name: iOS TestFlight
 
-# Build the iOS app and upload it to TestFlight from a macOS runner, so the app
-# can be released without a local Mac (e.g. from Windows). Trigger it from the
-# GitHub Actions tab ("Run workflow") or with `gh workflow run ios-testflight.yml`.
+# Build the research and/or LH iOS app on a macOS runner, and optionally upload
+# to TestFlight, so a release can happen without a local Mac (e.g. from Windows).
+# Controlled by two workflow_dispatch inputs — `app` (research/lh/both, default
+# research) and `upload` (true/false, default false) — so a no-arg dispatch only
+# builds the research app and does NOT upload. Trigger it from the GitHub Actions
+# tab ("Run workflow") or with
+#   gh workflow run ios-testflight.yml -f app=<research|lh|both> -f upload=<true|false>
 #
 # Requires these repository secrets (see CLAUDE.md → CI):
 #   ASC_KEY_ID            App Store Connect API key ID (Admin access — needed
