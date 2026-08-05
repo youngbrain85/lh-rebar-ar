@@ -42,6 +42,7 @@
 **Files:**
 - Create: `LHRebarAR/App/AppFeatures.swift`
 - Modify: `project.yml`
+- Modify: `scripts/release.sh` (타겟이 둘이 되면 빌드번호 추출이 깨진다 — 아래 Step 4-b)
 
 **Interfaces:**
 - Produces: `AppFeatures.liveShare: Bool`, `AppFeatures.measurement: Bool`, `AppFeatures.rebarFilter: Bool`, `AppFeatures.appName: String`
@@ -83,8 +84,12 @@ enum AppFeatures {
 
 - [ ] **Step 3: project.yml에 두 번째 타겟 추가**
 
-기존 `targets:` 블록의 `LHRebarAR:` 아래(같은 들여쓰기)에 `LHRebarARLH:`를 추가한다. **기존
-`LHRebarAR` 타겟은 한 글자도 바꾸지 않는다** — 빌드 32까지 나간 앱이므로 회귀 위험을 만들지 않는다.
+기존 `targets:` 블록의 `LHRebarAR:` 아래(같은 들여쓰기)에 `LHRebarARLH:`를 추가한다.
+
+기존 `LHRebarAR` 타겟에서 바꾸는 것은 **`CFBundleDisplayName` 한 줄뿐**이다 —
+`LH Rebar AR` → `철근 AR 연구`. 두 앱이 홈 화면에서 구별되지 않으면 분할의 의미가 없고,
+표시명은 번들 ID·서명·TestFlight 이력 어디에도 영향을 주지 않는다.
+**그 외에는 한 글자도 바꾸지 않는다** — 빌드 32까지 나간 앱이므로 회귀 위험을 만들지 않는다.
 
 새 타겟은 기존 타겟과 다음만 다르다:
 
@@ -94,6 +99,14 @@ enum AppFeatures {
 | `CFBundleDisplayName` | `LH 철근검측` |
 | `SWIFT_ACTIVE_COMPILATION_CONDITIONS` | `$(inherited) LH_ONLY` |
 | `CFBundleVersion` / `CURRENT_PROJECT_VERSION` | `1` (새 앱이므로 1부터) |
+| `info.path` | `LHRebarAR/Info-LH.plist` |
+
+`info:`는 입력이 아니라 **xcodegen이 plist를 생성하는 출력 경로**다. 두 타겟이 한 경로를
+공유하면 나중에 처리되는 쪽이 덮어써서 표시명·빌드번호가 순서에 좌우된다. 새 디렉터리를
+만들지 않고 기존 `LHRebarAR/` 안에 두는 이유는, 그 디렉터리가 이미 존재하고(생성 실패
+위험이 없다) 기존 `LHRebarAR/Info.plist`와 같은 추적 관례에 놓이기 때문이다.
+`LHRebarAR/`은 `sources` 경로가 아니므로(소스는 `LHRebarAR/App`, `/AR`, … 하위만)
+빌드 페이즈에 딸려 들어가지 않는다.
 
 나머지(`sources`, `dependencies`, `deploymentTarget`, `info.properties`의 다른 키, `settings`의
 `TARGETED_DEVICE_FAMILY`·`DEVELOPMENT_TEAM`·`CODE_SIGN_STYLE`·`ASSETCATALOG_*`·`MARKETING_VERSION`
@@ -107,6 +120,30 @@ enum AppFeatures {
 `UIRequiresFullScreen`, `ITSAppUsesNonExemptEncryption`, `UIApplicationSceneManifest`,
 `UILaunchScreen`, `NSCameraUsageDescription`, `NSPhotoLibraryAddUsageDescription`을 빠뜨리지 말 것.
 하나라도 빠지면 심사나 런타임에서 문제가 된다.
+
+- [ ] **Step 3-b: scripts/release.sh의 빌드번호 추출을 고친다**
+
+타겟이 둘이 되면 `CURRENT_PROJECT_VERSION` 줄이 두 개가 되어 아래가 깨진다(`"32
+1"`을 산술에
+넘겨 `set -euo pipefail`에서 즉시 종료된다). Mac 릴리스 경로(CLAUDE.md §6)라 이 플랜의 다른
+태스크가 소유하지 않으므로 여기서 함께 고친다.
+
+`scripts/release.sh`의 아래 줄을
+
+```bash
+CURRENT=$(grep -E "^\s*CURRENT_PROJECT_VERSION:" project.yml | awk '{print $2}' | tr -d '"')
+```
+
+이렇게 바꾼다 — 연구과제 타겟 값만 명시적으로 읽는다:
+
+```bash
+# 타겟이 둘이라 grep으로는 두 값이 잡힌다. 이 스크립트는 연구과제 앱 릴리스용이다.
+CURRENT=$(python3 -c "import yaml;print(yaml.safe_load(open('project.yml',encoding='utf-8'))['targets']['LHRebarAR']['settings']['base']['CURRENT_PROJECT_VERSION'])")
+```
+
+바로 아래의 `MARKETING_VERSION`/`CFBundleShortVersionString` `sed`는 `.*` 패턴이라 **두 타겟
+모두** 치환한다. 지금은 둘 다 `0.1.0`이라 결과가 같으므로 **건드리지 않는다** — 두 앱의 마케팅
+버전을 따로 가져갈지는 아직 정해진 바 없고, 정해지기 전에 미리 갈라두면 추측이 된다.
 
 - [ ] **Step 4: YAML 유효성과 값 대조 (이 PC에서 가능한 유일한 검증)**
 
