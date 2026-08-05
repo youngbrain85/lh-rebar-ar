@@ -172,7 +172,11 @@ PDF와 기억만 대조하고 소스를 확인하지 않아 생긴 오류이며,
 2. App Store Connect → 새 앱 생성 (해당 번들 ID, 이름 "LH 철근검측")
 3. 생성된 앱의 ASC App ID를 알려줄 것 (`scripts/build_status.py`용)
 
-`scripts/build_status.py`는 이미 번들 ID **정확 일치**로 거르므로(굳은살 #7) 수정 없이 동작한다.
+`scripts/build_status.py`의 번들 ID **정확 일치** 필터(굳은살 #7)는 그대로 안전하지만, 필터
+대상 자체가 `BUNDLE_ID = "kr.lh.rebar-ar"`로 하드코딩되어 있어 인자·환경변수로 바꿀 수
+없었다 — 즉 LH 앱은 애초에 걸러낼 수조차 없었다. `scripts/next_build.py`처럼
+`BUNDLE_ID = os.environ.get("BUNDLE_ID", "kr.lh.rebar-ar")`로 고쳐서 `BUNDLE_ID=kr.lh.rebar-lh`
+환경변수로 LH 앱도 조회할 수 있게 한다.
 
 ### 5.3 검증
 

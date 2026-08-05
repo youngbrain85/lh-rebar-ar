@@ -937,7 +937,7 @@ struct ARPlacementView: View {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd HH:mm"
         let all = measurement.measurements
-        var lines = ["LH Rebar AR · \(model.displayName) · \(formatter.string(from: Date()))"]
+        var lines = ["\(AppFeatures.appName) · \(model.displayName) · \(formatter.string(from: Date()))"]
         guard !all.isEmpty else {
             // 측정 기능이 없는 앱(연구과제)은 이 줄 자체를 사진에 남기지 않는다 —
             // "측정 없음"이라는 문구도 발주처가 요청한 분리의 흔적이 될 수 있다.

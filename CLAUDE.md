@@ -4,7 +4,11 @@ Auto-loaded by Claude Code in this directory. It carries decisions, hard-won
 gotchas, and the current plan across machines/sessions so a fresh session can
 continue without re-deriving anything.
 
-**Last updated**: 2026-07-23 · iOS build 32 on TestFlight · dashboard live on Vercel.
+**Last updated**: 2026-08-05 · branch `feat/ar-app-split` (PR #14, open, not merged) splitting
+the app into 철근 AR 연구 (`kr.lh.rebar-ar`) + LH 철근검측 (`kr.lh.rebar-lh`) — see §1 · research
+app build 33 already on ASC (`next_build.py` returns 34; processing state not re-checked here) ·
+LH app not yet uploaded, ASC record not yet registered (§9) · CI green for both apps' compile at
+HEAD, nothing run on a device yet · dashboard live on Vercel.
 
 ---
 
@@ -202,19 +206,27 @@ screen is the device screen, so the field app raycasts that point directly.
 **On a Mac:**
 ```bash
 bash scripts/release.sh          # 연구과제 앱(LHRebarAR)만 — bumps build, xcodegen, archive, export, upload
-.venv/bin/python scripts/build_status.py <build>   # poll until VALID
+.venv/bin/python scripts/build_status.py <build>   # poll until VALID (research app, default BUNDLE_ID)
+BUNDLE_ID=kr.lh.rebar-lh .venv/bin/python scripts/build_status.py <build>   # same, for the LH app
 ```
 `release.sh` does not know about the LH target yet; it hardcodes scheme
 `LHRebarAR` / bundle `kr.lh.rebar-ar`. There is no Mac-local equivalent for the
-LH app — use the CI for it.
+LH app — use the CI for it. `build_status.py`'s `BUNDLE_ID` defaults to the
+research app but reads an env override (same pattern as `next_build.py`), so
+the LH app is only pollable with that override set.
 
 **From anywhere (CI, incl. Windows):** Actions tab → run **iOS TestFlight**, or
 `gh workflow run ios-testflight.yml -f app=<research|lh|both> -f upload=<true|false>`.
 Both inputs are **required with defaults** — a no-arg dispatch from the Actions
 UI or a bare `gh workflow run ios-testflight.yml` resolves to `app=research
 upload=false`, i.e. **it builds the research app only and does not upload**.
-To actually ship, set `upload=true` explicitly. Auto-distributes to TestFlight
-testers when processing finishes.
+To actually ship, set `upload=true` explicitly. **Auto-distributes to
+TestFlight testers when processing finishes — research app (`kr.lh.rebar-ar`)
+only.** Auto-distribution is a per-tester-group setting and tester groups are
+per-app; the research app has one because someone configured it once. The LH
+app's ASC record is brand new (§9) and has no tester group yet, so its first
+VALID build will sit in TestFlight unseen by anyone until an account owner
+creates an internal tester group for it and enables automatic distribution.
 
 `app=both` builds research and LH in parallel matrix jobs
 (`fail-fast: false`, so one job failing doesn't cancel the other).
@@ -305,7 +317,7 @@ direction-family/contour branch that surfaced this.
 | Thing | Value |
 |---|---|
 | Bundle ID (연구과제, target `LHRebarAR`) | `kr.lh.rebar-ar` |
-| Bundle ID (LH 전용, target `LHRebarARLH`) | `kr.lh.rebar-lh` — **not yet registered.** Needs an Apple Developer → Identifiers entry and an App Store Connect → 새 앱 record (display name `LH 철근검측`) before `upload=true` can succeed for this app; both are account-owner-only actions. Until then, CI runs must use `app=research` for uploads (see §6) |
+| Bundle ID (LH 전용, target `LHRebarARLH`) | `kr.lh.rebar-lh` — **not yet registered.** Needs (1) an Apple Developer → Identifiers entry, (2) an App Store Connect → 새 앱 record (display name `LH 철근검측`), and (3) an internal tester group created on that ASC record with automatic distribution enabled (see §6 — without it, VALID builds reach nobody) — all three are account-owner-only actions. Once the record exists, report its ASC App ID back so it can be added to the "ASC app (LH 전용)" row below (also needed for `BUNDLE_ID=kr.lh.rebar-lh` polling with `scripts/build_status.py`). Until then, CI runs must use `app=research` for uploads (see §6) |
 | Apple team | `G88CPAZ3MP` |
 | ASC app (연구과제) | LH Rebar AR (`6763446019`) — sibling `Rebar Capture` (`kr.lh.rebarcapture`) is a **different** app, don't touch |
 | ASC app (LH 전용) | not yet created — see Bundle ID row above |
