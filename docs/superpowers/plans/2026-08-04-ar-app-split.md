@@ -42,7 +42,7 @@
 **Files:**
 - Create: `LHRebarAR/App/AppFeatures.swift`
 - Modify: `project.yml`
-- Modify: `scripts/release.sh` (타겟이 둘이 되면 빌드번호 추출이 깨진다 — 아래 Step 4-b)
+- Modify: `scripts/release.sh` (타겟이 둘이 되면 빌드번호 추출이 깨진다 — 아래 Step 3-b)
 
 **Interfaces:**
 - Produces: `AppFeatures.liveShare: Bool`, `AppFeatures.measurement: Bool`, `AppFeatures.rebarFilter: Bool`, `AppFeatures.appName: String`
