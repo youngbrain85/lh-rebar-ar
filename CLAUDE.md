@@ -317,10 +317,10 @@ direction-family/contour branch that surfaced this.
 | Thing | Value |
 |---|---|
 | Bundle ID (연구과제, target `LHRebarAR`) | `kr.lh.rebar-ar` |
-| Bundle ID (LH 전용, target `LHRebarARLH`) | `kr.lh.rebar-lh` — **not yet registered.** Needs (1) an Apple Developer → Identifiers entry, (2) an App Store Connect → 새 앱 record (display name `LH 철근검측`), and (3) an internal tester group created on that ASC record with automatic distribution enabled (see §6 — without it, VALID builds reach nobody) — all three are account-owner-only actions. Once the record exists, report its ASC App ID back so it can be added to the "ASC app (LH 전용)" row below (also needed for `BUNDLE_ID=kr.lh.rebar-lh` polling with `scripts/build_status.py`). Until then, CI runs must use `app=research` for uploads (see §6) |
+| Bundle ID (LH 전용, target `LHRebarARLH`) | `kr.lh.rebar-lh` — registered 2026-08-05, ASC record created, tester group configured (all three account-owner steps done) |
 | Apple team | `G88CPAZ3MP` |
 | ASC app (연구과제) | LH Rebar AR (`6763446019`) — sibling `Rebar Capture` (`kr.lh.rebarcapture`) is a **different** app, don't touch |
-| ASC app (LH 전용) | not yet created — see Bundle ID row above |
+| ASC app (LH 전용) | LH 철근검측 (`6798328356`) — poll with `BUNDLE_ID=kr.lh.rebar-lh` (§6) |
 | ASC API key | `5J8MLZ4426`, issuer `40dabd9c-8645-44e4-9754-c6eefe759320` |
 | LiveKit | project `ar-w5h0quhi`, `wss://ar-w5h0quhi.livekit.cloud` |
 | Vercel | project `office-dashboard`, alias `office-dashboard-xi.vercel.app` |
