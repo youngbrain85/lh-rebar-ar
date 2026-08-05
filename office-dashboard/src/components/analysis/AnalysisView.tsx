@@ -223,7 +223,7 @@ export default function AnalysisView({
           const merged = requiredSpacingReducer(requiredSpacingState, analyzedEvent).map;
           dispatchRequiredSpacing(analyzedEvent);
           const result: AnalysisResult = {
-            version: 2, scanId: scan.scan_id, arId,
+            version: 2, idScheme: "path", scanId: scan.scan_id, arId,
             registration: {
               matrix: out.registration.matrix,
               rmsMm: out.registration.rmsMm,
