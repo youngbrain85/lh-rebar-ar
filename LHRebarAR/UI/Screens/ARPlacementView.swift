@@ -87,11 +87,14 @@ struct ARPlacementView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                     .padding(.top, 110)
 
-                liveShareBanner
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                    .padding(.top, 60)
+                // 발주처 요청으로 앱을 둘로 나눴다 — 협업(라이브 공유) 관련 UI는 연구과제 앱에서만 보인다
+                if AppFeatures.liveShare {
+                    liveShareBanner
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        .padding(.top, 60)
 
-                annotationOverlay
+                    annotationOverlay
+                }
             }
             .overlay {
                 Color.white
@@ -135,7 +138,12 @@ struct ARPlacementView: View {
                 }
             )
         }
-        .alert("측정 이름", isPresented: $showNamePrompt) {
+        // 측정 기능이 꺼진 앱(연구과제)에서는 얼럿이 뜨지 않아야 한다. 뷰 수식자(.alert)는
+        // if로 감쌀 수 없으므로 조건을 Binding 안에 넣는다
+        .alert("측정 이름", isPresented: Binding(
+            get: { AppFeatures.measurement && showNamePrompt },
+            set: { showNamePrompt = $0 }
+        )) {
             TextField("예: 가로철근-1", text: $pendingNameText)
             Button("저장") {
                 if let id = pendingNameID {
@@ -177,10 +185,10 @@ struct ARPlacementView: View {
 
                 Spacer(minLength: 0)
 
-                measurementHintBanner
+                if AppFeatures.measurement { measurementHintBanner }
                 trackingLimitedBanner
                 errorBanners
-                if measurement.isActive {
+                if AppFeatures.measurement && measurement.isActive {
                     measurementPlusButton
                         .padding(.bottom, LHSpacing.lg + 6)
                         .transition(.opacity.combined(with: .scale(scale: 0.85)))
@@ -228,8 +236,8 @@ struct ARPlacementView: View {
                         .padding(.horizontal)
                         .padding(.top, LHSpacing.lg - 2)
                     Spacer()
-                    measurementHintBanner
-                    if measurement.isActive {
+                    if AppFeatures.measurement { measurementHintBanner }
+                    if AppFeatures.measurement && measurement.isActive {
                         measurementPlusButton
                             .padding(.bottom, LHSpacing.lg + 4)
                             .transition(.opacity.combined(with: .scale(scale: 0.85)))
@@ -287,9 +295,12 @@ struct ARPlacementView: View {
             diagnosticsToggle
             meshToggle
             #endif
-            measurementToggle
-            liveShareToggle
-            if liveShare.isSharing { micToggle }
+            // 발주처 요청으로 앱을 둘로 나눴다 — 어느 앱에 무엇이 보이는지는 AppFeatures 한 곳에서 정한다
+            if AppFeatures.measurement { measurementToggle }
+            if AppFeatures.liveShare {
+                liveShareToggle
+                if liveShare.isSharing { micToggle }
+            }
             if placementActive { relockButton }
             if case .placed = placement.state { removeButton }
             if case .adjusting = placement.state { removeButton }
