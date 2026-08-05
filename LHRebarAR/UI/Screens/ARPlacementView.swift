@@ -877,7 +877,7 @@ struct ARPlacementView: View {
                 .overlay(Circle().stroke(.white.opacity(0.7), lineWidth: 2.5))
                 .shadow(radius: 4)
         }
-        .accessibilityLabel("화면 캡처 — 측정 결과를 사진으로 저장")
+        .accessibilityLabel("화면 캡처 — 현재 AR 화면을 사진으로 저장")
     }
 
     @ViewBuilder
