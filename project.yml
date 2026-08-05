@@ -95,3 +95,86 @@ targets:
         MARKETING_VERSION: "0.1.0"
         CURRENT_PROJECT_VERSION: "32"
         SUPPORTS_MACCATALYST: NO
+
+  # LH 전용 앱 — 발주처 요청으로 연구과제 앱과 분리 개발 (docs 참조:
+  # AR 앱 등 요청사항_260803.pdf). 소스는 LHRebarAR와 완전히 동일하게 전부 포함하고,
+  # AppFeatures.swift의 LH_ONLY 플래그(SWIFT_ACTIVE_COMPILATION_CONDITIONS)만으로 화면
+  # 노출을 가른다. xcodegen에는 타겟 상속이 없으므로 아래는 의도적인 복제다.
+  LHRebarARLH:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    dependencies:
+      - package: LiveKit
+    sources:
+      - path: LHRebarAR/App
+      - path: LHRebarAR/AR
+        optional: true
+      - path: LHRebarAR/Placement
+        optional: true
+      - path: LHRebarAR/Measurement
+        optional: true
+      - path: LHRebarAR/Backend
+        optional: true
+      - path: LHRebarAR/Model
+        optional: true
+      - path: LHRebarAR/UI
+        optional: true
+      - path: LHRebarAR/Services
+        optional: true
+      - path: LHRebarAR/Resources/Assets.xcassets
+        buildPhase: resources
+      - path: LHRebarAR/Resources/Models
+        type: folder
+        buildPhase: resources
+    info:
+      # 기존 타겟과 별도 경로: CFBundleDisplayName/CFBundleVersion이 리터럴 값으로
+      # 굳어지므로(변수 치환 안 됨), 같은 파일을 공유하면 xcodegen generate 시 두 타겟이
+      # 서로 덮어써서 한쪽 값이 유실된다.
+      path: LHRebarARLH/Info.plist
+      properties:
+        CFBundleDisplayName: LH 철근검측
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+        LSRequiresIPhoneOS: true
+        UILaunchScreen:
+          UIColorName: ""
+        NSCameraUsageDescription: "철근 모델을 현장에 증강 표시하기 위해 카메라가 필요합니다."
+        NSPhotoLibraryAddUsageDescription: "측정 결과 화면을 사진에 저장하기 위해 사진 접근이 필요합니다."
+        NSMicrophoneUsageDescription: "오피스와 실시간 협업(음성) 시 마이크가 필요합니다."
+        ITSAppUsesNonExemptEncryption: false
+        # BriconLab API is served over plain HTTP on a custom port; scope the
+        # ATS exception to that domain only (not a blanket arbitrary-loads).
+        NSAppTransportSecurity:
+          NSExceptionDomains:
+            api.briconlab.com:
+              NSExceptionAllowsInsecureHTTPLoads: true
+              NSIncludesSubdomains: true
+        # No `arkit` UIRequiredDeviceCapabilities: visionOS rejects that key
+        # (ITMS-90984). LiDAR support is gated more strictly at runtime via
+        # ARSessionManager.isLiDARSupported → UnsupportedDeviceView.
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UIRequiresFullScreen: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: kr.lh.rebar-lh
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: G88CPAZ3MP
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        SUPPORTS_MACCATALYST: NO
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) LH_ONLY"
