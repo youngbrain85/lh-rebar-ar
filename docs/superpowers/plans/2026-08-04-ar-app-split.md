@@ -334,7 +334,6 @@ gh run watch
 
 두 잡 모두 성공해야 한다. 실패하면 로그를 읽고 원인 태스크로 돌아가 고친다. 특히 확인할 것:
 
-- `OpacityComponent`를 못 찾는다 → Task 3 Step 2의 두 번째 방식으로 바꾼다
 - `LHSpacing`/`LHTypography`/`LHColors`의 없는 멤버 → Task 3 Step 3에서 실제 이름으로 바꾼다
 - 게이팅한 `if` 안에서 타입 추론이 깨진다 → SwiftUI `ViewBuilder`가 `if` 분기를 허용하는 위치인지 확인한다
 
