@@ -10,14 +10,21 @@ enum AppFeatures {
     #if LH_ONLY
     /// 실시간 다자간 협업 — 연구과제 앱 전용
     static let liveShare = false
-    /// 길이 측정 — LH 전용 앱 전용
+    /// 길이 측정 — 두 앱 모두 켠다. 발주처 기능표는 LH 전용으로 분류했지만,
+    /// 이미 현장 검증까지 끝난 기존 기능이라 연구과제 앱에서 빼면 순손실이라고
+    /// 판단해 사용자가 유지하기로 결정했다(2026-08). 두 앱의 실질적인 기능
+    /// 차이는 실시간 협업(그리고 추후 철근 종류별 필터링)만 남는다.
     static let measurement = true
     /// 철근 종류별 필터링 — LH 전용 앱 전용 (아직 미구현)
     static let rebarFilter = true
     static let appName = "LH 철근검측"
     #else
     static let liveShare = true
-    static let measurement = false
+    /// 길이 측정 — 발주처 기능표는 LH 전용으로 분류했지만, 이미 현장 검증까지
+    /// 끝난 기존 기능이라 연구과제 앱에서 빼면 순손실이라고 판단해 사용자가
+    /// 두 앱 모두에 유지하기로 결정했다(2026-08). 위 LH_ONLY 분기의 설명과
+    /// 같은 이유이니, 표에 맞춰 false로 "고치지" 말 것.
+    static let measurement = true
     static let rebarFilter = false
     static let appName = "철근 AR 연구"
     #endif

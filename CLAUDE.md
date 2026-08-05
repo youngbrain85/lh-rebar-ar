@@ -18,13 +18,18 @@ Two shipped pieces that work together for on-site rebar QA:
 
 | Piece | What it is | Where it runs |
 |---|---|---|
-| **철근 AR 연구** (iOS, `kr.lh.rebar-ar`) | Research-project field app: overlays the design rebar model on the real structure, measures, captures evidence, shares its AR screen live (collaboration only — no measurement) | iPhone/iPad w/ LiDAR, distributed via TestFlight |
-| **LH 철근검측** (iOS, `kr.lh.rebar-lh`) | LH-only field app: same AR placement/adjustment/visual-lock core, but with 측정 (measurement) instead of live share — no collaboration | iPhone/iPad w/ LiDAR, distributed via TestFlight |
+| **철근 AR 연구** (iOS, `kr.lh.rebar-ar`) | Research-project field app: overlays the design rebar model on the real structure, measures, captures evidence, shares its AR screen live | iPhone/iPad w/ LiDAR, distributed via TestFlight |
+| **LH 철근검측** (iOS, `kr.lh.rebar-lh`) | LH-only field app: same AR placement/adjustment/visual-lock/measurement core as the research app, but no live collaboration | iPhone/iPad w/ LiDAR, distributed via TestFlight |
 | **office-dashboard** (Next.js) | Office console: site management, 3D model viewer, live AR collaboration (watch + talk + annotate) | https://office-dashboard-xi.vercel.app |
 
 Both iOS apps are built from **one Xcode project, two targets** (`LHRebarAR` /
 `LHRebarARLH`) sharing all source files; a single compile-time flag decides which
-screens each shows — see `AppFeatures.swift` and gotcha #13 in §5.
+screens each shows — see `AppFeatures.swift` and gotcha #13 in §5. The client's
+feature table put 길이 측정 (length measurement) under LH-only, but it's an
+existing, field-verified feature — the team decided (2026-08-05) to keep it in
+the research app too rather than take that as a net loss. The two apps' only
+remaining functional difference is 실시간 협업 (live collaboration), and later,
+철근 종류별 필터링.
 
 Data comes from the **BriconLab backend** (`http://api.briconlab.com:50001`).
 Live video/audio/data runs over **LiveKit Cloud** (`wss://ar-w5h0quhi.livekit.cloud`).
