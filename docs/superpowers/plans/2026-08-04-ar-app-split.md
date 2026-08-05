@@ -334,10 +334,11 @@ git commit -m "feat: hide measurement in the research app and live share in the 
             bundle: kr.lh.rebar-lh
 ```
 
-그리고 각 잡 앞에 건너뛰기 조건을 둔다:
+그리고 건너뛰기 조건을 둔다. **잡 레벨 `if:`에는 쓸 수 없다** — `matrix` 컨텍스트가 거기서는
+사용 불가라 디스패치 자체가 HTTP 422로 거부된다(실측 확인). 각 **스텝**에 건다:
 
 ```yaml
-    if: ${{ github.event.inputs.app == 'both' || github.event.inputs.app == matrix.app }}
+        if: ${{ github.event.inputs.app == 'both' || github.event.inputs.app == matrix.app }}
 ```
 
 빌드 번호 조회는 `scripts/next_build.py`를 그대로 쓴다 — **이미 `BUNDLE_ID` 환경변수를 받는다**
