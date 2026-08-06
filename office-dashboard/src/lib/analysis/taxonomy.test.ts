@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   allValues, buildTree, composeLabel, leafCount, normalizePrimPath, PRIM_NAME_MIN_RATIO,
-  SOURCE_NOTICE, taxonomyFromGeometry, taxonomyFromPrimNames, taxonomyFromSidecar,
-  UNCLASSIFIED_VALUE, visibleIdsFromChecked, type SidecarLike, type TaxonomyTreeNode,
+  SOURCE_NOTICE, taxonomyFromClassified, taxonomyFromGeometry, taxonomyFromPrimNames,
+  taxonomyFromSidecar, UNCLASSIFIED_VALUE, visibleIdsFromChecked,
+  type SidecarLike, type TaxonomyTreeNode,
 } from "./taxonomy";
-import type { RebarRecord } from "./types";
+import type { ClassifiedRebar, RebarRecord } from "./types";
 
 /** 트리에서 value로 노드를 찾는다 */
 function find(nodes: TaxonomyTreeNode[], value: string): TaxonomyTreeNode | null {
@@ -223,6 +224,34 @@ describe("taxonomyFromGeometry", () => {
     ]);
     expect(t.unmatched).toEqual(["/s/9"]);
     expect(find(buildTree(t), UNCLASSIFIED_VALUE)!.ids).toEqual(["/s/9"]);
+  });
+});
+
+describe("taxonomyFromClassified (frameSource:\"scan\")", () => {
+  const bar = (id: string, dir: string, layer: "outer" | "inner"): ClassifiedRebar => ({
+    id, centerline: [[0, 0, 0], [0, 1, 0]], radius: 0.01,
+    direction: dir === "세로" ? "v1" : "h1", directionLabel: dir, layer,
+  });
+
+  it("스캔 철근 자신의 id 로 2단 트리를 만든다", () => {
+    const t = taxonomyFromClassified([
+      bar("s1", "세로", "outer"), bar("s2", "세로", "outer"), bar("s3", "가로", "inner"),
+    ]);
+    expect(t.source).toBe("geometry");
+    expect(t.root).toBe("자동 분류");
+    expect(t.byId.get("s1")!.path).toEqual(["세로", "외측"]);
+    expect(t.byId.get("s1")!.label).toBe("세로-외측-01");
+    expect(t.byId.get("s2")!.label).toBe("세로-외측-02");
+    expect(t.byId.get("s3")!.path).toEqual(["가로", "내측"]);
+    const tree = buildTree(t);
+    expect(find(tree, "세로")!.count).toBe(2);
+    expect(find(tree, "가로/내측")!.count).toBe(1);
+  });
+
+  it("트리 잎의 id 가 스캔 id 그대로다 — 뷰어 키와 맞아야 한다", () => {
+    const t = taxonomyFromClassified([bar("scan-42", "세로", "outer")]);
+    const visible = visibleIdsFromChecked(buildTree(t), new Set(allValues(buildTree(t))));
+    expect([...visible]).toEqual(["scan-42"]);
   });
 });
 

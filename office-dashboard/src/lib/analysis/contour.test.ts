@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildContourField, contourBand, contourColor, CONTOUR_COLORS, fitWallPlane,
+  MAX_NORMAL_SPREAD_M, normalSpread,
 } from "./contour";
 import { cross, dot, normalize } from "./geom";
 import type { ClassifiedRebar, Vec3 } from "./types";
@@ -146,5 +147,44 @@ describe("buildContourField", () => {
     const f = buildContourField([gap(0.3, 1.0, -40)], plane, { cols: 4, rows: 4, radiusM: 5 });
     const filled = f.values.filter((v): v is number => v != null);
     for (const v of filled) expect(v).toBeCloseTo(40, 6);
+  });
+});
+
+describe("normalSpread", () => {
+  // XY 평면(법선 = +Z)
+  const plane = {
+    origin: [0, 0, 0] as Vec3,
+    axisU: [1, 0, 0] as Vec3,
+    axisV: [0, 1, 0] as Vec3,
+    width: 2,
+    height: 2,
+  };
+
+  it("벽면 안에 놓인 표본은 퍼짐이 0이다", () => {
+    const s = [
+      { midpoint: [0.1, 0.1, 0] as Vec3, deviationMm: 1 },
+      { midpoint: [1.5, 1.2, 0] as Vec3, deviationMm: 2 },
+    ];
+    expect(normalSpread(s, plane)).toBeCloseTo(0, 6);
+  });
+
+  it("법선 방향으로 퍼진 표본은 그 폭을 돌려준다", () => {
+    const s = [
+      { midpoint: [0, 0, -0.3] as Vec3, deviationMm: 1 },
+      { midpoint: [0, 0, 1.2] as Vec3, deviationMm: 2 },
+    ];
+    expect(normalSpread(s, plane)).toBeCloseTo(1.5, 6);
+  });
+
+  it("표본이 없으면 0", () => {
+    expect(normalSpread([], plane)).toBe(0);
+  });
+
+  it("한 벽체의 배근층(피복 포함 0.4m)은 임계 안에 들어간다", () => {
+    const s = [
+      { midpoint: [0, 0, 0] as Vec3, deviationMm: 1 },
+      { midpoint: [0, 0, 0.4] as Vec3, deviationMm: 2 },
+    ];
+    expect(normalSpread(s, plane)).toBeLessThan(MAX_NORMAL_SPREAD_M);
   });
 });

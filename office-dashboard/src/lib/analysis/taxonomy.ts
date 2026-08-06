@@ -8,7 +8,7 @@
 // 어느 단계인지는 Taxonomy.source가 들고 있고, UI는 sidecar가 아닐 때
 // 반드시 배지를 띄워야 한다 — 안 그러면 기하 분류가 도면 분류인 척한다.
 
-import type { RebarRecord } from "./types";
+import type { ClassifiedRebar, RebarRecord } from "./types";
 
 export interface RebarNode {
   /** 트리 경로 (잎 제외). 깊이는 부위마다 다르다 — 전벽 3단, 헌치 1단 */
@@ -240,6 +240,29 @@ export function taxonomyFromGeometry(records: RebarRecord[]): Taxonomy {
   }
 
   return { root: "자동 분류", byId, unmatched, unmatchedPrims: [], source: "geometry" };
+}
+
+/**
+ * 분류된 철근 자체에서 만드는 2단 트리 — `frameSource:"scan"`(설계모델 없이 분석)용.
+ *
+ * 그 모드의 결과는 `rebars: []`라 taxonomyFromGeometry가 쓸 레코드가 없고, 3D가
+ * 그리는 것도 설계 철근이 아니라 **스캔 철근**이다. 설계 id로 만든 트리를 그 화면에
+ * 걸면 키가 하나도 안 맞아 필터가 아무 일도 안 한다. 발주처가 실제로 쓰는 경로이므로
+ * 여기서만은 스캔 철근을 트리의 주체로 삼는다.
+ */
+export function taxonomyFromClassified(bars: ClassifiedRebar[]): Taxonomy {
+  const byId = new Map<string, RebarNode>();
+  const counters = new Map<string, number>();
+
+  for (const b of bars) {
+    const path = [b.directionLabel || b.direction, LAYER_KO[b.layer]];
+    const key = path.join("/");
+    const no = (counters.get(key) ?? 0) + 1;
+    counters.set(key, no);
+    byId.set(b.id, { path, label: composeLabel(path, no), no, ids: [b.id] });
+  }
+
+  return { root: "자동 분류", byId, unmatched: [], unmatchedPrims: [], source: "geometry" };
 }
 
 // ----------------------------------------------------------------- 트리 조립
