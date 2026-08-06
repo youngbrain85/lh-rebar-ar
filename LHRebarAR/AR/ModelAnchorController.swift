@@ -144,6 +144,110 @@ final class ModelAnchorController {
         lastCollisionNodeCount = count
     }
 
+    // MARK: - 철근 계층 필터 (spec §7.1)
+
+    /// `ModelComponent`를 가진 노드의 **정규화된 경로** 목록.
+    ///
+    /// 경로는 `modelEntity` 기준으로 조립한 뒤 `RebarTaxonomy.normalizePrimPath`를
+    /// 거친다 — 배치 wrapper 세그먼트를 떼야 사이드카의 prim 경로와 맞는다.
+    /// 형제 중 이름이 겹치면 `#k`를 붙여 유일하게 만든다(대시보드의 `경로#k`와 같은 규칙).
+    static func meshNodePaths(of root: Entity) -> [String] {
+        var out: [String] = []
+        var seen: [String: Int] = [:]
+        var stack: [(Entity, String)] = [(root, "")]
+        while let (entity, prefix) = stack.popLast() {
+            for child in entity.children {
+                stack.append((child, prefix + "/" + child.name))
+            }
+            guard entity.components[ModelComponent.self] != nil else { continue }
+            let key = RebarTaxonomy.normalizePrimPath(prefix)
+            let n = seen[key] ?? 0
+            seen[key] = n + 1
+            out.append(n == 0 ? key : "\(key)#\(n)")
+        }
+        return out
+    }
+
+    /// 경로 집합에 해당하는 노드의 `isEnabled`를 설정한다. 반환값은 매칭된 노드 수.
+    ///
+    /// 투명도가 아니라 `isEnabled`를 쓰는 이유(고차 §3.6):
+    ///  - 전역 투명도 슬라이더가 개별 노드 상태를 덮어쓴다
+    ///  - 철근마다 충돌체가 붙어 있어(installCollision) 투명하게만 만들면 **안 보이는
+    ///    철근에 측정 레티클이 계속 스냅된다**
+    ///  - `applyOpacity`는 PBR/Simple 외 머티리얼에 조용히 실패한다
+    ///
+    /// 반환값이 0이면 조인 실패다 — 그게 유일한 증상이므로 호출부가 반드시 확인해야 한다.
+    @discardableResult
+    func setHidden(_ hidden: Bool, paths: Set<String>) -> Int {
+        guard let modelEntity else { return 0 }
+        var matched = 0
+        var seen: [String: Int] = [:]
+        var stack: [(Entity, String)] = [(modelEntity, "")]
+        while let (entity, prefix) = stack.popLast() {
+            for child in entity.children {
+                stack.append((child, prefix + "/" + child.name))
+            }
+            guard entity.components[ModelComponent.self] != nil else { continue }
+            let key = RebarTaxonomy.normalizePrimPath(prefix)
+            let n = seen[key] ?? 0
+            seen[key] = n + 1
+            let id = n == 0 ? key : "\(key)#\(n)"
+            if paths.contains(id) {
+                entity.isEnabled = !hidden
+                matched += 1
+            }
+        }
+        return matched
+    }
+
+    /// 보여야 할 경로 집합을 통째로 적용한다(그 밖은 숨긴다). 반환값은 매칭된 노드 수.
+    /// `visible`이 nil이면 전부 켠다.
+    @discardableResult
+    func applyVisibility(_ visible: Set<String>?) -> Int {
+        guard let modelEntity else { return 0 }
+        var matched = 0
+        var seen: [String: Int] = [:]
+        var stack: [(Entity, String)] = [(modelEntity, "")]
+        while let (entity, prefix) = stack.popLast() {
+            for child in entity.children {
+                stack.append((child, prefix + "/" + child.name))
+            }
+            guard entity.components[ModelComponent.self] != nil else { continue }
+            let key = RebarTaxonomy.normalizePrimPath(prefix)
+            let n = seen[key] ?? 0
+            seen[key] = n + 1
+            let id = n == 0 ? key : "\(key)#\(n)"
+            guard let visible else {
+                entity.isEnabled = true
+                matched += 1
+                continue
+            }
+            entity.isEnabled = visible.contains(id)
+            if entity.isEnabled { matched += 1 }
+        }
+        return matched
+    }
+
+    #if DEBUG
+    /// 기기 검증용 엔티티 트리 덤프 — spec §7.0.
+    /// RealityKit이 USD prim 이름을 `Entity.name`으로 보존하는지는 코드로 확인할 수
+    /// 없다. 이 덤프의 경로 집합이 대시보드가 뽑은 id 집합을 **포함**하면 통과다.
+    static func dumpEntityTree(of root: Entity) -> String {
+        var lines: [String] = []
+        func walk(_ e: Entity, depth: Int, prefix: String) {
+            let hasModel = e.components[ModelComponent.self] != nil
+            let pad = String(repeating: "  ", count: depth)
+            lines.append("\(pad)\(e.name.isEmpty ? "(무명)" : e.name)\(hasModel ? " [mesh]" : "")")
+            for c in e.children { walk(c, depth: depth + 1, prefix: prefix + "/" + c.name) }
+        }
+        walk(root, depth: 0, prefix: "")
+        let paths = meshNodePaths(of: root)
+        lines.append("— mesh 노드 \(paths.count)개, 충돌체 \(lastCollisionNodeCount)개")
+        lines.append(contentsOf: paths.prefix(10).map { "  \($0)" })
+        return lines.joined(separator: "\n")
+    }
+    #endif
+
     /// Override every material's opacity on the current model entity.
     /// `opacity` is absolute (0 = invisible, 1 = fully opaque).
     func setOpacity(_ opacity: Float) {

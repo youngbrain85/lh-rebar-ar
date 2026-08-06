@@ -22,6 +22,8 @@ struct ARPlacementView: View {
     @State private var captureToastIcon: String = "exclamationmark.triangle.fill"
     @State private var captureThumbnail: UIImage?
     @State private var isRelocking: Bool = false
+    /// 철근 계층 필터 패널 — LH 전용 앱에서만 열린다 (AppFeatures.rebarFilter)
+    @State private var showRebarTree: Bool = false
 
     // Measurement naming
     @State private var showNamePrompt: Bool = false
@@ -128,6 +130,23 @@ struct ARPlacementView: View {
             default:
                 break
             }
+        }
+        // 철근 계층 필터 — 기능이 꺼진 앱에서는 바인딩 자체가 항상 false다
+        .sheet(isPresented: Binding(
+            get: { AppFeatures.rebarFilter && showRebarTree },
+            set: { showRebarTree = $0 }
+        )) {
+            RebarTreePad(
+                nodes: placement.rebarTree,
+                source: placement.rebarSource,
+                checked: Binding(
+                    get: { placement.checkedRebarNodes },
+                    set: { placement.checkedRebarNodes = $0 }
+                ),
+                matchCount: placement.lastFilterMatchCount,
+                onClose: { showRebarTree = false }
+            )
+            .presentationDetents([.medium, .large])
         }
         .sheet(isPresented: $showHistory) {
             MetricsView(
@@ -304,10 +323,27 @@ struct ARPlacementView: View {
                 liveShareToggle
                 if liveShare.isSharing { micToggle }
             }
+            if AppFeatures.rebarFilter, placementActive { rebarTreeToggle }
             if placementActive { relockButton }
             if case .placed = placement.state { removeButton }
             if case .adjusting = placement.state { removeButton }
         }
+    }
+
+    /// 철근 계층 필터 — `AppFeatures.rebarFilter`를 실제로 읽는 유일한 지점.
+    /// 앱별 차이는 AppFeatures 한 곳에서만 정한다 (고차 #13).
+    private var rebarTreeToggle: some View {
+        Button {
+            HapticsService.shared.impact()
+            showRebarTree.toggle()
+        } label: {
+            Image(systemName: "list.bullet.indent")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(showRebarTree ? LHColors.adjusting : .white)
+                .frame(width: LHSpacing.iconChip, height: LHSpacing.iconChip)
+                .background(LHColors.overlay, in: Circle())
+        }
+        .accessibilityLabel("철근 종류 선택")
     }
 
     private var measurementToggle: some View {
