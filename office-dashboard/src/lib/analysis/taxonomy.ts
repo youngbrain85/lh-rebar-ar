@@ -308,6 +308,52 @@ export function buildTree(t: Taxonomy): TaxonomyTreeNode[] {
   return out;
 }
 
+/** 트리의 모든 노드 value — 초기 "전부 체크" 상태를 만들 때 쓴다 */
+export function allValues(nodes: TaxonomyTreeNode[]): string[] {
+  const out: string[] = [];
+  const walk = (ns: TaxonomyTreeNode[]) => {
+    for (const n of ns) {
+      out.push(n.value);
+      if (n.children) walk(n.children);
+    }
+  };
+  walk(nodes);
+  return out;
+}
+
+/**
+ * 체크된 노드 value 집합 → 보여야 할 Rebar.id 집합.
+ * 부모가 체크되면 자손도 체크되지만(checkStrictly:false), 어느 쪽이 들어와도
+ * 같은 결과가 나오도록 체크된 노드의 ids를 전부 합집합한다.
+ */
+export function visibleIdsFromChecked(
+  nodes: TaxonomyTreeNode[],
+  checked: ReadonlySet<string>,
+): Set<string> {
+  const out = new Set<string>();
+  const walk = (ns: TaxonomyTreeNode[]) => {
+    for (const n of ns) {
+      if (checked.has(n.value)) for (const id of n.ids) out.add(id);
+      if (n.children) walk(n.children);
+    }
+  };
+  walk(nodes);
+  return out;
+}
+
+/** 트리 잎(자식 없는 노드) 수 — 성능 가드용 */
+export function leafCount(nodes: TaxonomyTreeNode[]): number {
+  let n = 0;
+  const walk = (ns: TaxonomyTreeNode[]) => {
+    for (const x of ns) {
+      if (x.children && x.children.length > 0) walk(x.children);
+      else n += 1;
+    }
+  };
+  walk(nodes);
+  return n;
+}
+
 /** 배지 문구 — 대시보드와 iOS가 같은 문자열을 써야 한다 */
 export const SOURCE_NOTICE: Record<Taxonomy["source"], string | null> = {
   sidecar: null,

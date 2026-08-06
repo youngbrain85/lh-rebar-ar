@@ -6,7 +6,7 @@
 // 기존 결과가 저장돼 있으면 자동 로드하고, 재분석 버튼으로 다시 돌릴 수 있다.
 import {
   Alert, Badge, Box, Button, Card, Center, Checkbox, Chip, Group, Loader, NumberInput,
-  Paper, ScrollArea, SegmentedControl, SimpleGrid, Slider, Stack, Table, Text,
+  Paper, ScrollArea, SegmentedControl, SimpleGrid, Slider, Stack, Table, Tabs, Text,
 } from "@mantine/core";
 import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
 import type * as THREE from "three";
@@ -23,11 +23,17 @@ import {
   type FrameSource,
 } from "../../lib/analysis/requiredSpacingState";
 import { computeSpacing, spacingGroupKey, suggestRequiredSpacing } from "../../lib/analysis/spacing";
+import { matchesModel, parseRebarMeta } from "../../lib/analysis/rebarMetaSchema";
+import {
+  allValues, buildTree, taxonomyFromGeometry, taxonomyFromPrimNames, taxonomyFromSidecar,
+  visibleIdsFromChecked, type Taxonomy,
+} from "../../lib/analysis/taxonomy";
 import type {
   AnalysisResult, ClassifiedRebar, Mat4, Rebar, RebarRecord, Verdict,
 } from "../../lib/analysis/types";
 import AnalysisViewer, { LAYER_COLOR } from "./AnalysisViewer";
 import { loadDesign } from "./loadDesign";
+import RebarTree from "./RebarTree";
 import type { ScanMeta } from "./ScanList";
 import { useAnalysis } from "./useAnalysis";
 
@@ -75,6 +81,8 @@ export default function AnalysisView({
   /** 저장된 결과의 정합 방식 — "none"이면 그 결과는 frameSource:"scan"으로 만들어졌다는
    *  뜻이라, output이 아직 없는 "저장본만 로드된" 화면에서도 판정 위젯을 숨겨야 한다 */
   const [savedMethod, setSavedMethod] = useState<"auto" | "manual" | "none" | null>(null);
+  /** 저장된 결과의 designId 규칙 — "name"이면 사이드카 prim 경로와 조인되지 않는다 */
+  const [savedIdScheme, setSavedIdScheme] = useState<"name" | "path" | null>(null);
   const [tolerance, setTolerance] = useState(10);
   const [error, setError] = useState<string | null>(null);
   const [saveWarning, setSaveWarning] = useState<string | null>(null);
@@ -142,6 +150,9 @@ export default function AnalysisView({
           ) {
             setSavedRecords(prev.rebars);
             setTolerance(prev.toleranceMm);
+            // 필드가 없는 저장본은 옛 규칙("name") — 그 designId는 prim 경로가 아니라
+            // 메시 데이터블록 이름이라 사이드카와 조인되지 않는다 (spec §6.1)
+            setSavedIdScheme(prev.idScheme ?? "name");
             const method = prev.registration?.method ?? null;
             setSavedMethod(method);
             // loadedResult는 "지금 모드"와 비교하지 않는다 — 저장된 결과 자신의 method가
@@ -202,6 +213,7 @@ export default function AnalysisView({
         setOutput(out);
         setSavedRecords(null);
         setSavedMethod(null);
+        setSavedIdScheme(null);
         if (!out.registration.failed) {
           // 편차 지도 칩은 기본 체크 상태로 렌더되므로, 사용자가 직접 눌러야만 발동하는
           // onChange 가드로는 "분석 실행 → 지도가 뜨는" 기본 경로에서 한 번도 실행되지
@@ -351,6 +363,102 @@ export default function AnalysisView({
     if (samples.length === 0) return null;
     return buildContourField(samples, output.plane);
   }, [output, showContour, effectiveMetric, spacing, positionSamples]);
+
+  // ---- 철근 계층 트리 (spec §6.2 · §8) ----
+
+  /**
+   * 트리에 올릴 설계 철근 id 전체. 분석 전에는 로드된 설계 철근에서,
+   * 저장본만 로드된 화면에서는 그 designId에서 온다 — output에 의존하면
+   * 재분석 전까지 트리도 비어 있게 된다.
+   */
+  const taxonomyIds = useMemo(() => {
+    if (designRebars && designRebars.length > 0) return designRebars.map((r) => r.id);
+    const recs = output?.rebars ?? savedRecords;
+    return recs
+      ? recs.map((r) => r.designId).filter((x): x is string => x != null)
+      : [];
+  }, [designRebars, output, savedRecords]);
+
+  /** 사이드카 계층 JSON — 없으면(404·스키마 불일치) 폴백으로 내려간다 */
+  const [sidecarMeta, setSidecarMeta] = useState<ReturnType<typeof parseRebarMeta> | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    setSidecarMeta(null);
+    (async () => {
+      try {
+        const res = await fetch(`/api/rebar-meta?ar_id=${encodeURIComponent(arId)}`);
+        if (!res.ok) return; // 404 = 이 모델엔 계층 정보가 없다 → 폴백
+        const parsed = parseRebarMeta(await res.json());
+        if (cancelled) return;
+        if (!parsed.ok) console.warn("[rebar-meta] 스키마 불일치 — 폴백", parsed.errors);
+        setSidecarMeta(parsed);
+      } catch {
+        /* 네트워크 실패도 폴백. 계층은 없으면 없는 대로 동작해야 한다 */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [arId]);
+
+  const { taxonomy, taxonomyNotice } = useMemo<{
+    taxonomy: Taxonomy | null;
+    taxonomyNotice: string | null;
+  }>(() => {
+    const recs = view?.rebars ?? null;
+    if (taxonomyIds.length > 0) {
+      if (sidecarMeta?.ok) {
+        // prim_count 대조. upload_at은 이 화면이 모델 메타를 들고 있지 않아 비교하지
+        // 않는다. 우리 개수는 반경·길이 필터와 연결요소 분리를 거친 뒤라 BriconLab의
+        // prim 수와 정확히 같으리란 보장이 없으므로, 어긋나도 **버리지 않고 경고만**
+        // 한다 — 잘못된 폴백보다 눈에 보이는 경고가 낫다.
+        const primCount = new Set(taxonomyIds.map((id) => id.split("#")[0])).size;
+        const m = matchesModel(sidecarMeta.data, { primCount });
+        const t = taxonomyFromSidecar(sidecarMeta.data, taxonomyIds);
+        const notes: string[] = [];
+        if (!m.ok) notes.push(m.reason);
+        if (t.byId.size === 0) {
+          notes.push("계층 정보가 이 모델의 철근과 하나도 연결되지 않았습니다 (prim 경로 불일치).");
+        } else if (t.unmatchedPrims.length > 0) {
+          notes.push(`계층 정보에만 있고 모델에 없는 철근 ${t.unmatchedPrims.length}개.`);
+        }
+        if (t.byId.size > 0) {
+          return { taxonomy: t, taxonomyNotice: notes.join(" ") || null };
+        }
+        // 하나도 못 붙었으면 사이드카는 쓸모가 없다 — 폴백으로 내려간다
+      }
+      const byName = taxonomyFromPrimNames(taxonomyIds);
+      if (byName) return { taxonomy: byName, taxonomyNotice: null };
+    }
+    if (recs && recs.length > 0) {
+      return { taxonomy: taxonomyFromGeometry(recs), taxonomyNotice: null };
+    }
+    return { taxonomy: null, taxonomyNotice: null };
+  }, [sidecarMeta, taxonomyIds, view]);
+
+  const treeNodes = useMemo(() => (taxonomy ? buildTree(taxonomy) : []), [taxonomy]);
+
+  const [checkedNodes, setCheckedNodes] = useState<string[]>([]);
+  // 트리가 갈리면(재분석·모델 변경) 전부 체크 상태로 되돌린다 — 이전 트리의 value가
+  // 남으면 새 트리에서는 아무것도 안 고르는 상태가 되고, 증상은 "3D가 비었다"뿐이다.
+  useEffect(() => {
+    setCheckedNodes(allValues(treeNodes));
+  }, [treeNodes]);
+
+  const totalTreeIds = useMemo(
+    () => treeNodes.reduce((n, x) => n + x.count, 0),
+    [treeNodes],
+  );
+  /** 체크된 노드가 가리키는 Rebar.id 집합. 필터가 안 걸렸으면 null(전체 표시) */
+  const visibleDesignIds = useMemo(() => {
+    if (treeNodes.length === 0) return null;
+    const set = visibleIdsFromChecked(treeNodes, new Set(checkedNodes));
+    return set.size === totalTreeIds ? null : set;
+  }, [treeNodes, checkedNodes, totalTreeIds]);
+
+  /** 옛 id 규칙으로 저장된 결과는 사이드카와 조인되지 않는다 */
+  const idSchemeNotice =
+    savedRecords && !output && savedIdScheme === "name"
+      ? "이전 식별 방식으로 저장돼 계층 정보를 붙일 수 없습니다 — 「재분석」을 눌러 주세요."
+      : null;
 
   /** 요구 간격 입력 폼에 띄울 그룹 목록 */
   const spacingGroups = spacing?.groups.filter((g) => g.count > 0) ?? [];
@@ -502,6 +610,33 @@ export default function AnalysisView({
 
       {/* ---- 우: 패널 ---- */}
       <Stack gap="sm" w={380} style={{ overflow: "hidden" }}>
+        <Tabs defaultValue="analysis" keepMounted={false}>
+          <Tabs.List grow>
+            <Tabs.Tab value="analysis">분석</Tabs.Tab>
+            <Tabs.Tab value="rebars">
+              철근
+              {visibleDesignIds && (
+                <Badge size="xs" variant="filled" color="orange" ml={6}>
+                  필터
+                </Badge>
+              )}
+            </Tabs.Tab>
+          </Tabs.List>
+
+          <Tabs.Panel value="rebars" pt="sm">
+            <Stack gap="xs">
+              <RebarTree
+                nodes={treeNodes}
+                checked={checkedNodes}
+                onCheckedChange={setCheckedNodes}
+                source={taxonomy?.source ?? "geometry"}
+                notice={idSchemeNotice ?? taxonomyNotice}
+              />
+            </Stack>
+          </Tabs.Panel>
+
+          <Tabs.Panel value="analysis" pt="sm">
+            <Stack gap="sm">
         <Group gap="xs">
           <Button size="xs" onClick={() => void analyze()} loading={stage != null}>
             {stage ? STAGE_LABEL[stage] ?? stage : output || savedRecords ? "재분석" : "분석 실행"}
@@ -754,6 +889,9 @@ export default function AnalysisView({
             </Paper>
           </>
         )}
+            </Stack>
+          </Tabs.Panel>
+        </Tabs>
       </Stack>
     </Group>
   );

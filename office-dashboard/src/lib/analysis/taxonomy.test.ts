@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
-  buildTree, composeLabel, normalizePrimPath, PRIM_NAME_MIN_RATIO, SOURCE_NOTICE,
-  taxonomyFromGeometry, taxonomyFromPrimNames, taxonomyFromSidecar,
-  UNCLASSIFIED_VALUE, type SidecarLike, type TaxonomyTreeNode,
+  allValues, buildTree, composeLabel, leafCount, normalizePrimPath, PRIM_NAME_MIN_RATIO,
+  SOURCE_NOTICE, taxonomyFromGeometry, taxonomyFromPrimNames, taxonomyFromSidecar,
+  UNCLASSIFIED_VALUE, visibleIdsFromChecked, type SidecarLike, type TaxonomyTreeNode,
 } from "./taxonomy";
 import type { RebarRecord } from "./types";
 
@@ -223,6 +223,44 @@ describe("taxonomyFromGeometry", () => {
     ]);
     expect(t.unmatched).toEqual(["/s/9"]);
     expect(find(buildTree(t), UNCLASSIFIED_VALUE)!.ids).toEqual(["/s/9"]);
+  });
+});
+
+describe("visibleIdsFromChecked · allValues · leafCount", () => {
+  const meta: SidecarLike = {
+    structure: "옹벽",
+    rebars: [
+      { prim: "/R/Stem_Front_Vert_01", path: ["전벽철근", "전면", "수직철근"], no: 1 },
+      { prim: "/R/Stem_Front_Vert_02", path: ["전벽철근", "전면", "수직철근"], no: 2 },
+      { prim: "/R/Haunch_01", path: ["헌치철근"], no: 1 },
+    ],
+  };
+  const ids = ["/R/Stem_Front_Vert_01", "/R/Stem_Front_Vert_02", "/R/Haunch_01"];
+  const tree = buildTree(taxonomyFromSidecar(meta, ids));
+
+  it("전부 체크하면 전부 보인다", () => {
+    const visible = visibleIdsFromChecked(tree, new Set(allValues(tree)));
+    expect([...visible].sort()).toEqual([...ids].sort());
+  });
+
+  it("상위 노드만 체크해도 자손 id 가 전부 나온다", () => {
+    const visible = visibleIdsFromChecked(tree, new Set(["전벽철근"]));
+    expect([...visible].sort()).toEqual([
+      "/R/Stem_Front_Vert_01", "/R/Stem_Front_Vert_02",
+    ]);
+  });
+
+  it("잎만 체크해도 그 id 가 나온다", () => {
+    const visible = visibleIdsFromChecked(tree, new Set(["/R/Haunch_01"]));
+    expect([...visible]).toEqual(["/R/Haunch_01"]);
+  });
+
+  it("아무것도 체크하지 않으면 빈 집합", () => {
+    expect(visibleIdsFromChecked(tree, new Set()).size).toBe(0);
+  });
+
+  it("leafCount 는 잎 개수를 센다", () => {
+    expect(leafCount(tree)).toBe(3);
   });
 });
 
