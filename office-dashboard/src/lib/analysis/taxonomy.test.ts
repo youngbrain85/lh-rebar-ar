@@ -1,0 +1,235 @@
+import { describe, expect, it } from "vitest";
+import {
+  buildTree, composeLabel, normalizePrimPath, PRIM_NAME_MIN_RATIO, SOURCE_NOTICE,
+  taxonomyFromGeometry, taxonomyFromPrimNames, taxonomyFromSidecar,
+  UNCLASSIFIED_VALUE, type SidecarLike, type TaxonomyTreeNode,
+} from "./taxonomy";
+import type { RebarRecord } from "./types";
+
+/** 트리에서 value로 노드를 찾는다 */
+function find(nodes: TaxonomyTreeNode[], value: string): TaxonomyTreeNode | null {
+  for (const n of nodes) {
+    if (n.value === value) return n;
+    const hit = n.children ? find(n.children, value) : null;
+    if (hit) return hit;
+  }
+  return null;
+}
+
+describe("normalizePrimPath", () => {
+  it("절대/중복슬래시/wrapper 3형태가 같은 키로 정규화된다", () => {
+    const want = "/RebarModel/Stem_Front_Vert_01";
+    expect(normalizePrimPath("/RebarModel/Stem_Front_Vert_01")).toBe(want);
+    expect(normalizePrimPath("RebarModel//Stem_Front_Vert_01")).toBe(want);
+    expect(normalizePrimPath("/modelEntity/RebarModel/Stem_Front_Vert_01")).toBe(want);
+    expect(normalizePrimPath("/RebarModel/Meshes/Stem_Front_Vert_01")).toBe(want);
+    expect(normalizePrimPath("/placementRoot/modelEntity/RebarModel/Meshes/Stem_Front_Vert_01"))
+      .toBe(want);
+  });
+
+  it("대소문자와 공백은 바꾸지 않는다 — USD는 대소문자를 구분한다", () => {
+    expect(normalizePrimPath("/Root/Bar A")).toBe("/Root/Bar A");
+    expect(normalizePrimPath("/root/bar")).not.toBe("/Root/Bar");
+  });
+});
+
+describe("composeLabel", () => {
+  it("§4.2 규칙 — 경로 + 2자리 0패딩 번호", () => {
+    expect(composeLabel(["전벽철근", "전면", "수직철근"], 1)).toBe("전벽철근-전면-수직철근-01");
+    expect(composeLabel(["헌치철근"], 7)).toBe("헌치철근-07");
+    expect(composeLabel(["헌치철근"], null)).toBe("헌치철근");
+  });
+});
+
+describe("taxonomyFromSidecar", () => {
+  const meta: SidecarLike = {
+    structure: "옹벽",
+    rebars: [
+      { prim: "/RebarModel/Stem_Front_Vert_01", label: "전벽-전면-수직철근-01",
+        path: ["전벽철근", "전면", "수직철근"], no: 1 },
+      { prim: "/RebarModel/Stem_Front_Vert_02", label: "전벽-전면-수직철근-02",
+        path: ["전벽철근", "전면", "수직철근"], no: 2 },
+      { prim: "/RebarModel/Haunch_01", label: "헌치-01", path: ["헌치철근"], no: 1 },
+      { prim: "/RebarModel/Base_Top_Trans_01", path: ["저판철근", "상부", "횡방향"], no: 1 },
+    ],
+  };
+
+  it("깊이가 부위마다 달라도 트리가 만들어진다", () => {
+    const t = taxonomyFromSidecar(meta, [
+      "/RebarModel/Stem_Front_Vert_01",
+      "/RebarModel/Haunch_01",
+      "/RebarModel/Base_Top_Trans_01",
+    ]);
+    expect(t.source).toBe("sidecar");
+    expect(t.root).toBe("옹벽");
+    const tree = buildTree(t);
+    // 전벽은 3단, 헌치는 1단
+    expect(find(tree, "전벽철근/전면/수직철근")).not.toBeNull();
+    expect(find(tree, "헌치철근")).not.toBeNull();
+    expect(find(tree, "헌치철근")!.children).toHaveLength(1);
+    expect(find(tree, "저판철근/상부/횡방향")).not.toBeNull();
+  });
+
+  it("label 이 없으면 §4.2 규칙으로 조립한다", () => {
+    const t = taxonomyFromSidecar(meta, ["/RebarModel/Base_Top_Trans_01"]);
+    expect(t.byId.get("/RebarModel/Base_Top_Trans_01")!.label).toBe("저판철근-상부-횡방향-01");
+  });
+
+  it("wrapper 가 낀 id 도 조인된다", () => {
+    const t = taxonomyFromSidecar(meta, ["/modelEntity/RebarModel/Meshes/Haunch_01"]);
+    expect(t.unmatched).toEqual([]);
+    expect(t.byId.get("/modelEntity/RebarModel/Meshes/Haunch_01")!.label).toBe("헌치-01");
+  });
+
+  it("조인 안 된 id 는 unmatched 로 간다", () => {
+    const t = taxonomyFromSidecar(meta, ["/RebarModel/Haunch_01", "/RebarModel/Unknown_09"]);
+    expect(t.unmatched).toEqual(["/RebarModel/Unknown_09"]);
+    expect(t.byId.has("/RebarModel/Unknown_09")).toBe(false);
+  });
+
+  it("사이드카에만 있는 prim 은 unmatchedPrims 로 간다", () => {
+    const t = taxonomyFromSidecar(meta, ["/RebarModel/Haunch_01"]);
+    expect(t.unmatchedPrims.sort()).toEqual([
+      "/RebarModel/Base_Top_Trans_01",
+      "/RebarModel/Stem_Front_Vert_01",
+      "/RebarModel/Stem_Front_Vert_02",
+    ]);
+  });
+
+  it("한 prim 에 가닥이 여럿이면 잎 1개에 ids 2개 (R6 위반 시 동작)", () => {
+    const t = taxonomyFromSidecar(meta, [
+      "/RebarModel/Haunch_01#0",
+      "/RebarModel/Haunch_01#1",
+    ]);
+    const node = t.byId.get("/RebarModel/Haunch_01#0")!;
+    expect(node.ids).toEqual(["/RebarModel/Haunch_01#0", "/RebarModel/Haunch_01#1"]);
+    expect(t.byId.get("/RebarModel/Haunch_01#1")).toBe(node); // 같은 객체를 공유
+    const tree = buildTree(t);
+    expect(find(tree, "헌치철근")!.count).toBe(2);
+    expect(find(tree, "헌치철근")!.children).toHaveLength(1); // 잎은 하나
+  });
+
+  it("unmatched 가 있으면 「분류 없음」 노드가 마지막에 붙는다", () => {
+    const t = taxonomyFromSidecar(meta, ["/RebarModel/Haunch_01", "/scan/extra-1"]);
+    const tree = buildTree(t);
+    const last = tree[tree.length - 1];
+    expect(last.value).toBe(UNCLASSIFIED_VALUE);
+    expect(last.label).toBe("분류 없음 (1)");
+    expect(last.ids).toEqual(["/scan/extra-1"]);
+  });
+
+  it("unmatched 가 없으면 「분류 없음」 노드도 없다", () => {
+    const t = taxonomyFromSidecar(meta, ["/RebarModel/Haunch_01"]);
+    expect(find(buildTree(t), UNCLASSIFIED_VALUE)).toBeNull();
+  });
+
+  it("상위 노드의 count 는 자손 ids 합계다", () => {
+    const t = taxonomyFromSidecar(meta, [
+      "/RebarModel/Stem_Front_Vert_01",
+      "/RebarModel/Stem_Front_Vert_02",
+    ]);
+    const tree = buildTree(t);
+    expect(find(tree, "전벽철근")!.count).toBe(2);
+    expect(find(tree, "전벽철근/전면/수직철근")!.count).toBe(2);
+  });
+});
+
+describe("taxonomyFromPrimNames", () => {
+  it("신규 규약 토큰을 부위 어휘로 편다", () => {
+    const t = taxonomyFromPrimNames([
+      "/RebarModel/Stem_Front_Vert_01",
+      "/RebarModel/Base_Top_Trans_01",
+      "/RebarModel/Haunch_01",
+    ])!;
+    expect(t.source).toBe("primName");
+    expect(t.root).toBe("구조물");
+    expect(t.byId.get("/RebarModel/Stem_Front_Vert_01")!.path)
+      .toEqual(["전벽철근", "전면", "수직철근"]);
+    expect(t.byId.get("/RebarModel/Haunch_01")!.label).toBe("헌치철근-01");
+  });
+
+  it("TopV_01 은 레거시 어댑터로 '상단 > 세로' 가 된다 — 부위 어휘를 쓰지 않는다", () => {
+    const ids = [
+      ...Array.from({ length: 20 }, (_, i) => `/RebarModel/TopV_${String(i + 1).padStart(2, "0")}`),
+      ...Array.from({ length: 10 }, (_, i) => `/RebarModel/TopH_${String(i + 1).padStart(2, "0")}`),
+      ...Array.from({ length: 20 }, (_, i) => `/RebarModel/BotV_${String(i + 1).padStart(2, "0")}`),
+      ...Array.from({ length: 10 }, (_, i) => `/RebarModel/BotH_${String(i + 1).padStart(2, "0")}`),
+    ];
+    const t = taxonomyFromPrimNames(ids)!;
+    expect(t.byId.size).toBe(60);
+    expect(t.byId.get("/RebarModel/TopV_01")!.path).toEqual(["상단", "세로"]);
+    expect(t.byId.get("/RebarModel/TopV_01")!.label).toBe("상단-세로-01");
+    // 부위 어휘가 새어나오지 않는다
+    const allSegs = [...t.byId.values()].flatMap((n) => n.path);
+    for (const forbidden of ["전벽철근", "저판철근", "헌치철근", "상부", "하부", "수직철근"]) {
+      expect(allSegs).not.toContain(forbidden);
+    }
+    const tree = buildTree(t);
+    expect(tree.map((n) => n.value).sort()).toEqual(["상단", "하단"]);
+    expect(find(tree, "상단")!.count).toBe(30);
+  });
+
+  it("코드북 해석률이 임계 미만이면 null 을 돌려준다", () => {
+    // 5개 중 2개만 해석 가능 → 0.4 < 0.6
+    const t = taxonomyFromPrimNames([
+      "/R/Haunch_01", "/R/Haunch_02",
+      "/R/Wall_A", "/R/Wall_B", "/R/Wall_C",
+    ]);
+    expect(t).toBeNull();
+  });
+
+  it("임계 이상이면 채택하고 해석 실패분은 unmatched 로 간다", () => {
+    // 5개 중 4개 해석 가능 → 0.8 ≥ 0.6
+    const t = taxonomyFromPrimNames([
+      "/R/Haunch_01", "/R/Haunch_02", "/R/Haunch_03", "/R/Haunch_04", "/R/Wall_A",
+    ])!;
+    expect(t).not.toBeNull();
+    expect(t.unmatched).toEqual(["/R/Wall_A"]);
+    expect(find(buildTree(t), UNCLASSIFIED_VALUE)!.count).toBe(1);
+  });
+
+  it("빈 목록은 null", () => {
+    expect(taxonomyFromPrimNames([])).toBeNull();
+  });
+
+  it("임계값은 0.6 이다", () => {
+    expect(PRIM_NAME_MIN_RATIO).toBe(0.6);
+  });
+});
+
+describe("taxonomyFromGeometry", () => {
+  const rec = (o: Partial<RebarRecord>): RebarRecord => ({
+    designId: "d1", scanId: "s1", direction: "v1", directionLabel: "세로",
+    layer: "outer", deviationMm: { mean: 3, max: 5 }, verdict: "pass", ...o,
+  });
+
+  it("방향군 × 레이어 2단 — 부위 어휘를 쓰지 않는다", () => {
+    const t = taxonomyFromGeometry([
+      rec({ designId: "/d/1" }),
+      rec({ designId: "/d/2", layer: "inner" }),
+      rec({ designId: "/d/3", direction: "h1", directionLabel: "가로" }),
+    ]);
+    expect(t.source).toBe("geometry");
+    expect(t.root).toBe("자동 분류");
+    expect(t.byId.get("/d/1")!.path).toEqual(["세로", "외측"]);
+    expect(t.byId.get("/d/2")!.path).toEqual(["세로", "내측"]);
+    expect(t.byId.get("/d/3")!.path).toEqual(["가로", "외측"]);
+  });
+
+  it("도면 외(designId=null)는 unmatched 로 간다", () => {
+    const t = taxonomyFromGeometry([
+      rec({ designId: "/d/1" }),
+      rec({ designId: null, scanId: "/s/9", verdict: "extra" }),
+    ]);
+    expect(t.unmatched).toEqual(["/s/9"]);
+    expect(find(buildTree(t), UNCLASSIFIED_VALUE)!.ids).toEqual(["/s/9"]);
+  });
+});
+
+describe("SOURCE_NOTICE", () => {
+  it("sidecar 만 배지가 없다", () => {
+    expect(SOURCE_NOTICE.sidecar).toBeNull();
+    expect(SOURCE_NOTICE.primName).toBe("모델 이름 규칙으로 추정 — 도면 확인 필요");
+    expect(SOURCE_NOTICE.geometry).toBe("형상 자동 분류 — 부위 구분 아님");
+  });
+});
