@@ -28,8 +28,11 @@ screens each shows — see `AppFeatures.swift` and gotcha #13 in §5. The client
 feature table put 길이 측정 (length measurement) under LH-only, but it's an
 existing, field-verified feature — the team decided (2026-08-05) to keep it in
 the research app too rather than take that as a net loss. The two apps' only
-remaining functional difference is 실시간 협업 (live collaboration), and later,
-철근 종류별 필터링.
+remaining functional difference is 실시간 협업 (live collaboration) and
+**철근 계층(부위/면/방향)별 필터** (`AppFeatures.rebarFilter`, LH app only —
+built 2026-08-05, not yet device-verified). Note the axis: the client's feature
+table said "철근 종류별 필터링" (main bar / stirrup / tie); what exists is the
+**부위 계층** (전벽/저판/헌치 × 면 × 방향). The 종류 axis is still unbuilt.
 
 Data comes from the **BriconLab backend** (`http://api.briconlab.com:50001`).
 Live video/audio/data runs over **LiveKit Cloud** (`wss://ar-w5h0quhi.livekit.cloud`).
@@ -290,6 +293,12 @@ The app normally fetches tokens from the dashboard at runtime; the embedded
 - `POST /analysis/measurement-upload` — spec written in `api/MEASUREMENT_UPLOAD_REQUEST.md` (multipart: image + site_id + ar_id + inspector + remark + captured_at + `measurements[]` with name/points/distance/h/v/source). Once it exists, wire the capture flow to upload instead of only saving to Photos.
 - as-built 스캔 저장 API — 스펙 `api/SCAN_STORAGE_REQUEST.md`. 구현되면
   대시보드 API 라우트 내부만 프록시로 교체 (클라이언트 무변경).
+- **철근 계층 사이드카** `GET /analysis/rebar-meta?ar_id=` — 스펙
+  `api/REBAR_TAXONOMY_REQUEST.md`. 구현되면 트리가 도면 기반 부위 계층
+  (전벽-전면-수직철근-01)으로 올라간다. 없어도 prim 이름 코드북 폴백으로
+  동작하므로 **대기 항목이지 블로커가 아니다**. 옹벽 설계 모델 샘플 1개도
+  같이 요청해 뒀다 — 가닥별 prim 분리가 설계 변환 경로에서도 성립하는지는
+  아직 미확인이다(as-built 생성기에서만 확인됨).
 
 **Ready to build when wanted:**
 - Automatic periodic re-lock (currently manual scope button)

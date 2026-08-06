@@ -104,6 +104,21 @@ jobs:
           echo "Next build number: $N"
           /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $N" ${{ matrix.plist }}
 
+      # 서명 없이 시뮬레이터용으로 한 번 컴파일한다. Archive는 클라우드 서명을
+      # 먼저 하므로 Apple 계정의 인증서 한도에 걸리면 **Swift가 한 줄도 컴파일되기
+      # 전에** 실패한다 — 그러면 "코드가 빌드되는가"를 CI로 확인할 방법이 없다.
+      # 이 단계는 인증서와 무관하므로 서명 문제와 컴파일 오류를 분리해 준다.
+      - name: Compile check (no signing)
+        if: ${{ github.event.inputs.app == 'both' || github.event.inputs.app == matrix.app }}
+        run: |
+          set -euo pipefail
+          xcodebuild build \
+            -project LHRebarAR.xcodeproj -scheme ${{ matrix.scheme }} \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build/dd-${{ matrix.scheme }} \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
+
       - name: Archive
         if: ${{ github.event.inputs.app == 'both' || github.event.inputs.app == matrix.app }}
         env:
