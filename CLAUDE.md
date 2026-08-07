@@ -237,6 +237,12 @@ bash scripts/release.sh          # 연구과제 앱(LHRebarAR)만 — bumps buil
 .venv/bin/python scripts/build_status.py <build>   # poll until VALID (research app, default BUNDLE_ID)
 BUNDLE_ID=kr.lh.rebar-lh .venv/bin/python scripts/build_status.py <build>   # same, for the LH app
 ```
+`build_status.py`도 키 경로를 `ASC_KEY_PATH`(및 `ASC_KEY_ID`/`ASC_ISSUER_ID`)로
+바꿀 수 있다 — 기본값은 처음 설정한 Mac에만 있는 경로라 Windows에서는 지정해야 한다:
+```bash
+ASC_KEY_ID=<키ID> ASC_KEY_PATH=<.p8 경로> .venv/Scripts/python.exe scripts/build_status.py 34
+```
+
 `release.sh` does not know about the LH target yet; it hardcodes scheme
 `LHRebarAR` / bundle `kr.lh.rebar-ar`. There is no Mac-local equivalent for the
 LH app — use the CI for it. `build_status.py`'s `BUNDLE_ID` defaults to the

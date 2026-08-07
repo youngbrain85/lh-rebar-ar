@@ -3,12 +3,19 @@
 
 Usage:  .venv/bin/python scripts/build_status.py [target_build_number]
 
-Env: optional BUNDLE_ID (default kr.lh.rebar-ar — the research app; pass
-BUNDLE_ID=kr.lh.rebar-lh to poll the LH app once its ASC record exists).
+Env (all optional):
+  BUNDLE_ID      default kr.lh.rebar-ar — the research app; pass
+                 BUNDLE_ID=kr.lh.rebar-lh to poll the LH app.
+  ASC_KEY_ID     default 5J8MLZ4426 (upload-only key — fine for reading builds)
+  ASC_ISSUER_ID  default 40dabd9c-…
+  ASC_KEY_PATH   default ~/.appstoreconnect/private_keys/AuthKey_<KEY_ID>.p8
 
-Reads the API key from ~/.appstoreconnect/private_keys/AuthKey_<KEY_ID>.p8 and
-prints the latest builds with their processingState (PROCESSING / VALID /
+Prints the latest builds with their processingState (PROCESSING / VALID /
 INVALID / FAILED) so we can confirm a freshly uploaded build lands in TestFlight.
+
+The key path is overridable because the default only exists on the Mac that
+originally set it up — on Windows the key usually sits wherever it was
+downloaded, and hardcoding the path made this script unusable there.
 """
 import json
 import os
@@ -19,10 +26,19 @@ from pathlib import Path
 
 import jwt
 
-KEY_ID = "5J8MLZ4426"
-ISSUER_ID = "40dabd9c-8645-44e4-9754-c6eefe759320"
-KEY_PATH = Path.home() / ".appstoreconnect" / "private_keys" / f"AuthKey_{KEY_ID}.p8"
+KEY_ID = os.environ.get("ASC_KEY_ID", "5J8MLZ4426")
+ISSUER_ID = os.environ.get("ASC_ISSUER_ID", "40dabd9c-8645-44e4-9754-c6eefe759320")
+KEY_PATH = Path(
+    os.environ.get("ASC_KEY_PATH")
+    or Path.home() / ".appstoreconnect" / "private_keys" / f"AuthKey_{KEY_ID}.p8"
+)
 BUNDLE_ID = os.environ.get("BUNDLE_ID", "kr.lh.rebar-ar")
+
+if not KEY_PATH.is_file() or KEY_PATH.stat().st_size == 0:
+    sys.exit(
+        f"ASC API 키가 없습니다: {KEY_PATH}\n"
+        "ASC_KEY_PATH 로 .p8 경로를 지정하세요 (필요하면 ASC_KEY_ID 도 함께)."
+    )
 
 target = sys.argv[1] if len(sys.argv) > 1 else None
 
