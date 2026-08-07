@@ -6,12 +6,13 @@
 // 기존 결과가 저장돼 있으면 자동 로드하고, 재분석 버튼으로 다시 돌릴 수 있다.
 import {
   Alert, Badge, Box, Button, Card, Center, Checkbox, Chip, Group, Loader, NumberInput,
-  Paper, ScrollArea, SegmentedControl, SimpleGrid, Slider, Stack, Table, Text,
+  Paper, ScrollArea, SegmentedControl, SimpleGrid, Slider, Stack, Table, Tabs, Text,
 } from "@mantine/core";
 import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
 import type * as THREE from "three";
 import {
-  buildContourField, CONTOUR_COLORS, contourColor, DEFAULT_CONTOUR_MAX, type ContourSample,
+  buildContourField, CONTOUR_COLORS, contourColor, DEFAULT_CONTOUR_MAX, MAX_NORMAL_SPREAD_M,
+  normalSpread, type ContourSample,
 } from "../../lib/analysis/contour";
 import { barMidpoint } from "../../lib/analysis/geom";
 import { rejudgeRecords } from "../../lib/analysis/judge";
@@ -23,11 +24,17 @@ import {
   type FrameSource,
 } from "../../lib/analysis/requiredSpacingState";
 import { computeSpacing, spacingGroupKey, suggestRequiredSpacing } from "../../lib/analysis/spacing";
+import { matchesModel, parseRebarMeta } from "../../lib/analysis/rebarMetaSchema";
+import {
+  allValues, buildTree, taxonomyFromClassified, taxonomyFromGeometry, taxonomyFromPrimNames,
+  taxonomyFromSidecar, visibleIdsFromChecked, type Taxonomy,
+} from "../../lib/analysis/taxonomy";
 import type {
   AnalysisResult, ClassifiedRebar, Mat4, Rebar, RebarRecord, Verdict,
 } from "../../lib/analysis/types";
 import AnalysisViewer, { LAYER_COLOR } from "./AnalysisViewer";
 import { loadDesign } from "./loadDesign";
+import RebarTree from "./RebarTree";
 import type { ScanMeta } from "./ScanList";
 import { useAnalysis } from "./useAnalysis";
 
@@ -75,6 +82,8 @@ export default function AnalysisView({
   /** 저장된 결과의 정합 방식 — "none"이면 그 결과는 frameSource:"scan"으로 만들어졌다는
    *  뜻이라, output이 아직 없는 "저장본만 로드된" 화면에서도 판정 위젯을 숨겨야 한다 */
   const [savedMethod, setSavedMethod] = useState<"auto" | "manual" | "none" | null>(null);
+  /** 저장된 결과의 designId 규칙 — "name"이면 사이드카 prim 경로와 조인되지 않는다 */
+  const [savedIdScheme, setSavedIdScheme] = useState<"name" | "path" | null>(null);
   const [tolerance, setTolerance] = useState(10);
   const [error, setError] = useState<string | null>(null);
   const [saveWarning, setSaveWarning] = useState<string | null>(null);
@@ -142,6 +151,9 @@ export default function AnalysisView({
           ) {
             setSavedRecords(prev.rebars);
             setTolerance(prev.toleranceMm);
+            // 필드가 없는 저장본은 옛 규칙("name") — 그 designId는 prim 경로가 아니라
+            // 메시 데이터블록 이름이라 사이드카와 조인되지 않는다 (spec §6.1)
+            setSavedIdScheme(prev.idScheme ?? "name");
             const method = prev.registration?.method ?? null;
             setSavedMethod(method);
             // loadedResult는 "지금 모드"와 비교하지 않는다 — 저장된 결과 자신의 method가
@@ -202,6 +214,7 @@ export default function AnalysisView({
         setOutput(out);
         setSavedRecords(null);
         setSavedMethod(null);
+        setSavedIdScheme(null);
         if (!out.registration.failed) {
           // 편차 지도 칩은 기본 체크 상태로 렌더되므로, 사용자가 직접 눌러야만 발동하는
           // onChange 가드로는 "분석 실행 → 지도가 뜨는" 기본 경로에서 한 번도 실행되지
@@ -223,7 +236,7 @@ export default function AnalysisView({
           const merged = requiredSpacingReducer(requiredSpacingState, analyzedEvent).map;
           dispatchRequiredSpacing(analyzedEvent);
           const result: AnalysisResult = {
-            version: 2, scanId: scan.scan_id, arId,
+            version: 2, idScheme: "path", scanId: scan.scan_id, arId,
             registration: {
               matrix: out.registration.matrix,
               rmsMm: out.registration.rmsMm,
@@ -323,11 +336,14 @@ export default function AnalysisView({
     );
   }, [output, requiredSpacingState]);
 
-  /** 위치 편차 지표의 표본: 시공 철근 중점 + 그 철근의 편차 */
-  const positionSamples = useMemo<ContourSample[]>(() => {
+  /**
+   * 위치 편차 지표의 표본: 시공 철근 중점 + 그 철근의 편차.
+   * 계층 필터가 스캔 id로 걸러야 하므로 scanId를 함께 들고 다닌다 (spec §6.4.1).
+   */
+  const positionSamples = useMemo<{ sample: ContourSample; scanId: string }[]>(() => {
     if (!output || !view) return [];
     const byId = new Map(output.scanTransformed.map((r) => [r.id, r]));
-    const out: ContourSample[] = [];
+    const out: { sample: ContourSample; scanId: string }[] = [];
     for (const rec of view.rebars) {
       if (!rec.scanId || !rec.deviationMm) continue;
       const bar = byId.get(rec.scanId);
@@ -336,21 +352,229 @@ export default function AnalysisView({
       //   모든 표본이 벽 한쪽 모서리에 몰리고, IDW 반경(0.6m) 밖은 전부 비어 지도가
       //   가느다란 띠 하나로 나온다. 간격 지표와 같은 호길이 중점을 공유해야 두 지표가
       //   같은 자리를 가리킨다.
-      out.push({ midpoint: barMidpoint(bar), deviationMm: rec.deviationMm.mean });
+      out.push({
+        sample: { midpoint: barMidpoint(bar), deviationMm: rec.deviationMm.mean },
+        scanId: rec.scanId,
+      });
     }
     return out;
   }, [output, view]);
 
+
+  // ---- 철근 계층 트리 (spec §6.2 · §8) ----
+
+  /**
+   * 트리에 올릴 설계 철근 id 전체. 분석 전에는 로드된 설계 철근에서,
+   * 저장본만 로드된 화면에서는 그 designId에서 온다 — output에 의존하면
+   * 재분석 전까지 트리도 비어 있게 된다.
+   */
+  const taxonomyIds = useMemo(() => {
+    if (designRebars && designRebars.length > 0) return designRebars.map((r) => r.id);
+    const recs = output?.rebars ?? savedRecords;
+    return recs
+      ? recs.map((r) => r.designId).filter((x): x is string => x != null)
+      : [];
+  }, [designRebars, output, savedRecords]);
+
+  /** 사이드카 계층 JSON — 없으면(404·스키마 불일치) 폴백으로 내려간다 */
+  const [sidecarMeta, setSidecarMeta] = useState<ReturnType<typeof parseRebarMeta> | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    setSidecarMeta(null);
+    (async () => {
+      try {
+        const res = await fetch(`/api/rebar-meta?ar_id=${encodeURIComponent(arId)}`);
+        if (!res.ok) return; // 404 = 이 모델엔 계층 정보가 없다 → 폴백
+        const parsed = parseRebarMeta(await res.json());
+        if (cancelled) return;
+        if (!parsed.ok) console.warn("[rebar-meta] 스키마 불일치 — 폴백", parsed.errors);
+        setSidecarMeta(parsed);
+      } catch {
+        /* 네트워크 실패도 폴백. 계층은 없으면 없는 대로 동작해야 한다 */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [arId]);
+
+  const { taxonomy, taxonomyNotice } = useMemo<{
+    taxonomy: Taxonomy | null;
+    taxonomyNotice: string | null;
+  }>(() => {
+    const recs = view?.rebars ?? null;
+    // 「설계모델 없이 분석」 결과는 rebars가 비어 있고 3D가 그리는 것도 설계가 아니라
+    // 스캔 철근이다 — 설계 id로 만든 트리를 걸면 키가 하나도 안 맞아 필터가 아무
+    // 일도 안 한다. 발주처가 실제로 쓰는 경로이므로 여기서는 스캔 철근이 주체다.
+    if (resultIsNoDesign && output && output.scanTransformed.length > 0) {
+      return { taxonomy: taxonomyFromClassified(output.scanTransformed), taxonomyNotice: null };
+    }
+    if (taxonomyIds.length > 0) {
+      if (sidecarMeta?.ok) {
+        // prim_count 대조. upload_at은 이 화면이 모델 메타를 들고 있지 않아 비교하지
+        // 않는다. 우리 개수는 반경·길이 필터와 연결요소 분리를 거친 뒤라 BriconLab의
+        // prim 수와 정확히 같으리란 보장이 없으므로, 어긋나도 **버리지 않고 경고만**
+        // 한다 — 잘못된 폴백보다 눈에 보이는 경고가 낫다.
+        const primCount = new Set(taxonomyIds.map((id) => id.split("#")[0])).size;
+        const m = matchesModel(sidecarMeta.data, { primCount });
+        const t = taxonomyFromSidecar(sidecarMeta.data, taxonomyIds);
+        const notes: string[] = [];
+        if (!m.ok) notes.push(m.reason);
+        if (t.byId.size === 0) {
+          notes.push("계층 정보가 이 모델의 철근과 하나도 연결되지 않았습니다 (prim 경로 불일치).");
+        } else if (t.unmatchedPrims.length > 0) {
+          notes.push(`계층 정보에만 있고 모델에 없는 철근 ${t.unmatchedPrims.length}개.`);
+        }
+        if (t.byId.size > 0) {
+          return { taxonomy: t, taxonomyNotice: notes.join(" ") || null };
+        }
+        // 하나도 못 붙었으면 사이드카는 쓸모가 없다 — 폴백으로 내려간다
+      }
+      const byName = taxonomyFromPrimNames(taxonomyIds);
+      if (byName) return { taxonomy: byName, taxonomyNotice: null };
+    }
+    if (recs && recs.length > 0) {
+      return { taxonomy: taxonomyFromGeometry(recs), taxonomyNotice: null };
+    }
+    return { taxonomy: null, taxonomyNotice: null };
+  }, [sidecarMeta, taxonomyIds, view, resultIsNoDesign, output]);
+
+  const treeNodes = useMemo(() => (taxonomy ? buildTree(taxonomy) : []), [taxonomy]);
+
+  const [checkedNodes, setCheckedNodes] = useState<string[]>([]);
+  // 트리가 갈리면(재분석·모델 변경) 전부 체크 상태로 되돌린다 — 이전 트리의 value가
+  // 남으면 새 트리에서는 아무것도 안 고르는 상태가 되고, 증상은 "3D가 비었다"뿐이다.
+  useEffect(() => {
+    setCheckedNodes(allValues(treeNodes));
+  }, [treeNodes]);
+
+  const totalTreeIds = useMemo(
+    () => treeNodes.reduce((n, x) => n + x.count, 0),
+    [treeNodes],
+  );
+  /** 체크된 노드가 가리키는 Rebar.id 집합. 필터가 안 걸렸으면 null(전체 표시) */
+  const visibleDesignIds = useMemo(() => {
+    if (treeNodes.length === 0) return null;
+    const set = visibleIdsFromChecked(treeNodes, new Set(checkedNodes));
+    return set.size === totalTreeIds ? null : set;
+  }, [treeNodes, checkedNodes, totalTreeIds]);
+
+  /**
+   * 트리 선택(설계 id 공간) → 뷰어 키 공간 변환.
+   *
+   * noDesign 결과에서는 트리 자체가 스캔 철근으로 만들어져(위) 키가 이미 뷰어 키다.
+   * 설계 경로에서는 뷰어 키가 `designId ?? scanId`라 매핑이 필요하다.
+   *
+   * ★ 도면 외(designId=null)는 트리에 노드가 없으므로 **항상 보인다.** 안 그러면
+   *   어떤 필터를 켜든 「도면 외」가 통째로 사라지는데 미시공은 남아, 화면이 한쪽으로
+   *   편향된 거짓을 말하게 된다.
+   */
+  const visibleViewerKeys = useMemo<ReadonlySet<string> | null>(() => {
+    if (!visibleDesignIds) return null;
+    if (resultIsNoDesign) return visibleDesignIds;
+    const out = new Set<string>();
+    for (const rec of view?.rebars ?? []) {
+      const key = rec.designId ?? rec.scanId ?? "";
+      if (rec.designId == null || visibleDesignIds.has(rec.designId)) out.add(key);
+    }
+    return out;
+  }, [visibleDesignIds, resultIsNoDesign, view]);
+
+  /** 필터가 걸린 동안 보이는 스캔 철근 id — 컨투어 표본을 거를 때 쓴다 (spec §6.4.1) */
+  const visibleScanIds = useMemo<ReadonlySet<string> | null>(() => {
+    if (!visibleDesignIds) return null;
+    if (resultIsNoDesign) return visibleDesignIds;
+    const out = new Set<string>();
+    for (const rec of view?.rebars ?? []) {
+      if (!rec.scanId) continue;
+      if (rec.designId == null || visibleDesignIds.has(rec.designId)) out.add(rec.scanId);
+    }
+    return out;
+  }, [visibleDesignIds, resultIsNoDesign, view]);
+
+  /**
+   * 필터가 걸린 동안의 통계.
+   *
+   * 판정 카운트와 편차 평균·최대는 **같은 모집단**으로 함께 다시 계산한다 —
+   * 카운트만 다시 세고 편차는 전체 기준으로 두면 "미시공 0 · 허용초과 0 · 최대
+   * 61mm" 같은 자기모순이 나오고, 그 61mm는 화면에 보이지도 않는 철근의 값이다.
+   *
+   * 간격 통계(중앙값 등)는 **다시 계산하지 않는다** — 간격은 인접 쌍이라 가운데
+   * 철근을 빼면 양옆이 새 이웃이 되어 값 자체가 달라진다.
+   */
+  const filteredSummary = useMemo(() => {
+    if (!view || !visibleViewerKeys) return null;
+    let missing = 0, outOfTolerance = 0, extra = 0, matched = 0;
+    let sum = 0, n = 0, max = -Infinity;
+    for (const rec of view.rebars) {
+      const key = rec.designId ?? rec.scanId ?? "";
+      if (!visibleViewerKeys.has(key)) continue;
+      if (rec.verdict === "missing") missing += 1;
+      else if (rec.verdict === "out_of_tolerance") outOfTolerance += 1;
+      else if (rec.verdict === "extra") extra += 1;
+      if (rec.designId != null && rec.scanId != null) matched += 1;
+      if (rec.deviationMm) {
+        sum += rec.deviationMm.mean; n += 1;
+        if (rec.deviationMm.max > max) max = rec.deviationMm.max;
+      }
+    }
+    return {
+      missing, outOfTolerance, extra, matched,
+      deviationMm: n > 0 ? { mean: sum / n, max } : null,
+    };
+  }, [view, visibleViewerKeys]);
+
+  /** 옛 id 규칙으로 저장된 결과는 사이드카와 조인되지 않는다 */
+  const idSchemeNotice =
+    savedRecords && !output && savedIdScheme === "name"
+      ? "이전 식별 방식으로 저장돼 계층 정보를 붙일 수 없습니다 — 「재분석」을 눌러 주세요."
+      : null;
+
+  // ---- 편차 지도(컨투어) 표본 ----
   // ★ 반드시 useMemo로 감쌀 것. 뷰어의 컨투어 이펙트는 이 값의 identity로 갱신을 판단하고,
   //   갱신 때마다 DataTexture·지오메트리·머티리얼을 dispose하고 새로 만든다. 렌더마다 새
   //   ContourField를 만들면 요구간격 입력에 한 글자 칠 때마다 GPU 자원이 갈린다.
-  const contour = useMemo(() => {
+  const { contour, contourBlockedReason } = useMemo<{
+    contour: ReturnType<typeof buildContourField> | null;
+    contourBlockedReason: string | null;
+  }>(() => {
     // 정합 실패 시 scanTransformed는 엉뚱한 자리라 간격·평면이 무의미하다 — 지도를 끈다
-    if (!output || !showContour || output.registration.failed) return null;
-    const samples: ContourSample[] = effectiveMetric === "spacing" ? spacing?.gaps ?? [] : positionSamples;
-    if (samples.length === 0) return null;
-    return buildContourField(samples, output.plane);
-  }, [output, showContour, effectiveMetric, spacing, positionSamples]);
+    if (!output || !showContour || output.registration.failed) {
+      return { contour: null, contourBlockedReason: null };
+    }
+    // ★ 트리 선택은 설계 id 공간, 컨투어 표본은 스캔 id 공간이다. 변환 없이 그대로
+    //   거르면 교집합이 항상 공집합이 되어 편차 지도가 통째로 사라진다 (spec §6.4.1).
+    const samples: ContourSample[] =
+      effectiveMetric === "spacing"
+        ? (spacing?.gaps ?? []).filter(
+            // 간격은 두 철근 사이의 값이다 — 양 끝이 모두 보일 때만 표본으로 쓴다
+            (g) => !visibleScanIds || (visibleScanIds.has(g.aId) && visibleScanIds.has(g.bId)),
+          )
+        : positionSamples
+            .filter((p) => !visibleScanIds || visibleScanIds.has(p.scanId))
+            .map((p) => p.sample);
+
+    if (samples.length === 0) {
+      return {
+        contour: null,
+        contourBlockedReason: visibleScanIds
+          ? "선택한 철근에는 표본 구간이 없습니다 — 트리에서 더 고르세요."
+          : null,
+      };
+    }
+    // 벽면 정사영은 법선 성분을 버린다. 저판·헌치처럼 깊이 방향으로 퍼진 철근만
+    // 골라놓으면 깊이가 다른 수십 개가 같은 칸에 겹쳐 무의미한 색 띠가 나온다.
+    //
+    // ★ 필터가 걸린 경우에만 본다. 무필터 상태의 지도는 이 기능 이전부터 그렇게
+    //   그려져 왔고(바닥판 스캔은 퍼짐이 늘 임계를 넘는다), 필터 기능이 기존 화면을
+    //   말없이 꺼버리면 그건 이 작업의 범위를 넘는 회귀다. 부위별 평면은 범위 밖(§10).
+    if (visibleScanIds && normalSpread(samples, output.plane) > MAX_NORMAL_SPREAD_M) {
+      return {
+        contour: null,
+        contourBlockedReason:
+          "이 부위는 벽면 지도에 투영할 수 없습니다 (깊이 방향 정보 손실).",
+      };
+    }
+    return { contour: buildContourField(samples, output.plane), contourBlockedReason: null };
+  }, [output, showContour, effectiveMetric, spacing, positionSamples, visibleScanIds]);
 
   /** 요구 간격 입력 폼에 띄울 그룹 목록 */
   const spacingGroups = spacing?.groups.filter((g) => g.count > 0) ?? [];
@@ -396,6 +620,7 @@ export default function AnalysisView({
           contour={contour}
           contourMax={contourMax}
           focusKey={focusKey}
+          visibleKeys={visibleViewerKeys}
         />
 
         {/* 레이어 토글: 설계모델 / 시공 철근을 따로 볼 수 있다 */}
@@ -502,6 +727,33 @@ export default function AnalysisView({
 
       {/* ---- 우: 패널 ---- */}
       <Stack gap="sm" w={380} style={{ overflow: "hidden" }}>
+        <Tabs defaultValue="analysis" keepMounted={false}>
+          <Tabs.List grow>
+            <Tabs.Tab value="analysis">분석</Tabs.Tab>
+            <Tabs.Tab value="rebars">
+              철근
+              {visibleDesignIds && (
+                <Badge size="xs" variant="filled" color="orange" ml={6}>
+                  필터
+                </Badge>
+              )}
+            </Tabs.Tab>
+          </Tabs.List>
+
+          <Tabs.Panel value="rebars" pt="sm">
+            <Stack gap="xs">
+              <RebarTree
+                nodes={treeNodes}
+                checked={checkedNodes}
+                onCheckedChange={setCheckedNodes}
+                source={taxonomy?.source ?? "geometry"}
+                notice={idSchemeNotice ?? taxonomyNotice}
+              />
+            </Stack>
+          </Tabs.Panel>
+
+          <Tabs.Panel value="analysis" pt="sm">
+            <Stack gap="sm">
         <Group gap="xs">
           <Button size="xs" onClick={() => void analyze()} loading={stage != null}>
             {stage ? STAGE_LABEL[stage] ?? stage : output || savedRecords ? "재분석" : "분석 실행"}
@@ -579,18 +831,25 @@ export default function AnalysisView({
                 되고, 여기서는 그 0을 "찾아낸 사실"처럼 제시하지 않는다). */}
             {!resultIsNoDesign && (
               <>
+                {/* 필터가 걸리면 카운트와 편차를 같은 모집단으로 함께 다시 센다.
+                    한쪽만 다시 세면 "미시공 0 · 최대 61mm" 같은 자기모순이 나온다. */}
+                {filteredSummary && (
+                  <Badge size="xs" variant="light" color="orange">
+                    선택한 철근 기준
+                  </Badge>
+                )}
                 <SimpleGrid cols={3} spacing={6}>
                   <StatCard label="설계 철근" value={`${view.summary.designCount}`} />
                   <StatCard label="시공 철근" value={`${view.summary.scanCount}`} />
-                  <StatCard label="매칭" value={`${view.summary.matched}`} />
-                  <StatCard label="미시공" value={`${view.summary.missing}`} tone="red" />
-                  <StatCard label="허용초과" value={`${view.summary.outOfTolerance}`} tone="orange" />
-                  <StatCard label="도면 외" value={`${view.summary.extra}`} tone="blue" />
+                  <StatCard label="매칭" value={`${(filteredSummary ?? view.summary).matched}`} />
+                  <StatCard label="미시공" value={`${(filteredSummary ?? view.summary).missing}`} tone="red" />
+                  <StatCard label="허용초과" value={`${(filteredSummary ?? view.summary).outOfTolerance}`} tone="orange" />
+                  <StatCard label="도면 외" value={`${(filteredSummary ?? view.summary).extra}`} tone="blue" />
                 </SimpleGrid>
-                {view.summary.deviationMm && (
+                {(filteredSummary ?? view.summary).deviationMm && (
                   <Text size="xs" c="dimmed">
-                    편차 평균 {view.summary.deviationMm.mean.toFixed(1)}mm · 최대{" "}
-                    {view.summary.deviationMm.max.toFixed(1)}mm
+                    편차 평균 {(filteredSummary ?? view.summary).deviationMm!.mean.toFixed(1)}mm · 최대{" "}
+                    {(filteredSummary ?? view.summary).deviationMm!.max.toFixed(1)}mm
                   </Text>
                 )}
               </>
@@ -605,6 +864,12 @@ export default function AnalysisView({
                   { value: "position", label: "위치 편차" },
                 ]}
               />
+            )}
+
+            {contourBlockedReason && (
+              <Alert color="yellow" p="xs" radius="sm">
+                <Text size="xs">{contourBlockedReason}</Text>
+              </Alert>
             )}
 
             <Box>
@@ -688,6 +953,16 @@ export default function AnalysisView({
                 ) : effectiveMetric === "spacing" ? (
                   <Table striped highlightOnHover stickyHeader verticalSpacing={4} fz="xs">
                     <Table.Thead>
+                      {visibleScanIds && (
+                        <Table.Tr>
+                          <Table.Th colSpan={4} style={{ fontWeight: 500 }}>
+                            <Text size="xs" c="orange">
+                              필터 중 — 간격은 전체 기준입니다 (인접 쌍이라 부분집합으로
+                              다시 재면 값 자체가 달라집니다)
+                            </Text>
+                          </Table.Th>
+                        </Table.Tr>
+                      )}
                       <Table.Tr>
                         <Table.Th>구간</Table.Th>
                         <Table.Th ta="right">실측</Table.Th>
@@ -696,8 +971,13 @@ export default function AnalysisView({
                       </Table.Tr>
                     </Table.Thead>
                     <Table.Tbody>
-                      {(spacing?.gaps ?? []).map((g) => (
-                        <Table.Tr key={`${g.aId}|${g.bId}`}>
+                      {(spacing?.gaps ?? []).map((g) => {
+                        // 숨긴 철근이 낀 구간은 흐리게 — 행을 지우지는 않는다.
+                        // 지우면 "필터가 간격을 다시 쟀다"는 인상을 주기 때문이다.
+                        const dim = !!visibleScanIds &&
+                          !(visibleScanIds.has(g.aId) && visibleScanIds.has(g.bId));
+                        return (
+                        <Table.Tr key={`${g.aId}|${g.bId}`} style={{ opacity: dim ? 0.35 : 1 }}>
                           <Table.Td>
                             {familyLabel(g.direction)}·{g.layer === "outer" ? "외측" : "내측"}
                           </Table.Td>
@@ -708,7 +988,8 @@ export default function AnalysisView({
                             {g.deviationMm > 0 ? "+" : ""}{g.deviationMm.toFixed(0)}
                           </Table.Td>
                         </Table.Tr>
-                      ))}
+                        );
+                      })}
                     </Table.Tbody>
                   </Table>
                 ) : (
@@ -722,7 +1003,12 @@ export default function AnalysisView({
                       </Table.Tr>
                     </Table.Thead>
                     <Table.Tbody>
-                      {view.rebars.map((r) => {
+                      {/* 철근 표는 보이는 것만 — 간격 구간 표와 달리 행 하나가
+                          철근 하나라 걸러도 다른 행의 숫자가 변하지 않는다 */}
+                      {view.rebars.filter((r) => {
+                        if (!visibleViewerKeys) return true;
+                        return visibleViewerKeys.has(r.designId ?? r.scanId ?? "");
+                      }).map((r) => {
                         const key = r.designId ?? r.scanId ?? "";
                         return (
                           <Table.Tr key={key} style={{ cursor: "pointer" }}
@@ -754,6 +1040,9 @@ export default function AnalysisView({
             </Paper>
           </>
         )}
+            </Stack>
+          </Tabs.Panel>
+        </Tabs>
       </Stack>
     </Group>
   );

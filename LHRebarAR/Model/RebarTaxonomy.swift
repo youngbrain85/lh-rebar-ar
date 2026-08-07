@@ -1,0 +1,286 @@
+// LHRebarAR/Model/RebarTaxonomy.swift
+import Foundation
+
+/// 철근 계층 분류 — 대시보드 `office-dashboard/src/lib/analysis/taxonomy.ts`의 Swift 포트.
+///
+/// ★ 두 구현이 갈라지면 두 앱이 같은 철근에 다른 이름표를 붙인다. 케이스 표는
+///   `RebarTaxonomyTests`가 TS 테스트와 동일한 입력·기대값으로 잡아 둔다.
+enum RebarTaxonomy {
+
+    // MARK: - 경로 정규화
+
+    /// 정규화 과정에서 제거하는 세그먼트.
+    /// - `modelEntity` / `placementRoot`: 배치할 때 씌우는 wrapper (ModelAnchorController)
+    /// - `Meshes`: USD Scope 컨테이너. 같은 모델이 2단으로도 3단으로도 나오게 만든다
+    static let wrapperSegments: Set<String> = ["modelEntity", "placementRoot", "Meshes"]
+
+    /// prim 경로를 조인 키로 정규화한다. 대소문자·공백은 **바꾸지 않는다**(USD는 구분).
+    ///
+    /// 같은 철근이 사이드카(`/RebarModel/X`), 대시보드(모델에 따라 2단 또는 3단),
+    /// 앱(배치 wrapper가 낀 경로) 세 곳에서 서로 다른 문자열로 나타나기 때문에 필요하다.
+    /// 어긋나면 조인율이 0%가 되는데 증상은 "트리가 비었다" 하나뿐이라 원인을 못 찾는다.
+    static func normalizePrimPath(_ s: String) -> String {
+        let segs = s.split(separator: "/", omittingEmptySubsequences: true)
+            .map(String.init)
+            .filter { !wrapperSegments.contains($0) }
+        return "/" + segs.joined(separator: "/")
+    }
+
+    /// `경로#3` → `경로`. 한 prim이 여러 가닥으로 쪼개진 경우의 꼬리를 뗀다.
+    static func stripComponentIndex(_ id: String) -> String {
+        guard let hash = id.lastIndex(of: "#") else { return id }
+        return String(id[id.startIndex..<hash])
+    }
+
+    // MARK: - 라벨
+
+    /// §4.2 결정론적 조립 규칙. 사이드카 label이 있으면 그쪽이 이긴다.
+    static func composeLabel(path: [String], no: Int?) -> String {
+        guard let no else { return path.joined(separator: "-") }
+        return (path + [String(format: "%02d", no)]).joined(separator: "-")
+    }
+
+    // MARK: - 코드북 (사이드카가 없을 때)
+
+    /// 신규 규약 토큰 + 약어 확장.
+    static let codebook: [String: String] = [
+        "Stem": "전벽철근", "Base": "저판철근", "Haunch": "헌치철근",
+        "Front": "전면", "Rear": "배면",
+        "Top": "상부", "Bot": "하부",
+        "Vert": "수직철근", "Horiz": "수평철근",
+        "Trans": "횡방향", "Long": "종방향",
+        "V": "수직철근", "H": "수평철근",
+    ]
+
+    /// as-built 생성기 전용 레거시 어댑터 (`TopV_01` — 토큰 하나에 두 축).
+    ///
+    /// ★ 부위 어휘(상부/하부·수직철근)를 쓰지 않고 기하 어휘로 편다. `상부 > 수직철근`은
+    ///   저판의 면 어휘와 전벽의 방향 어휘를 섞는 것이라, 부위 정보가 전혀 없는 이
+    ///   모델에 붙이면 도면 기반 분류인 척하게 된다.
+    private static let legacyWords: [String: String] = [
+        "Top": "상단", "Bot": "하단", "V": "세로", "H": "가로",
+    ]
+
+    /// 코드북 해석률이 이 비율 미만이면 이름 기반 분류를 채택하지 않는다.
+    static let primNameMinRatio = 0.6
+
+    struct Parsed: Equatable {
+        var path: [String]
+        var no: Int?
+    }
+
+    /// 이름 하나를 경로로 해석. 해석 불가면 nil.
+    static func parsePrimName(_ leaf: String) -> Parsed? {
+        var tokens = leaf.split(separator: "_", omittingEmptySubsequences: true).map(String.init)
+        guard !tokens.isEmpty else { return nil }
+
+        var no: Int?
+        if let last = tokens.last, last.allSatisfy(\.isNumber), let n = Int(last) {
+            no = n
+            tokens.removeLast()
+        }
+        guard !tokens.isEmpty else { return nil }
+
+        var path: [String] = []
+        for t in tokens {
+            if t.count == 4,
+               let head = legacyWords[String(t.prefix(3))],
+               let tail = legacyWords[String(t.suffix(1))],
+               ["Top", "Bot"].contains(String(t.prefix(3))),
+               ["V", "H"].contains(String(t.suffix(1))) {
+                path.append(head)
+                path.append(tail)
+                continue
+            }
+            guard let mapped = codebook[t] else { return nil }
+            path.append(mapped)
+        }
+        return Parsed(path: path, no: no)
+    }
+
+    // MARK: - 노드 · 트리
+
+    struct Node: Equatable {
+        var path: [String]
+        var label: String
+        var no: Int?
+        /// 이 잎에 매달린 엔티티 경로 목록. 1 prim = 1 가닥 규약을 어기면 2개 이상.
+        var paths: [String]
+    }
+
+    enum Source: String {
+        case sidecar, primName, geometry
+
+        /// 배지 문구 — 대시보드와 **같은 문자열**을 써야 한다.
+        var notice: String? {
+            switch self {
+            case .sidecar: return nil
+            case .primName: return "모델 이름 규칙으로 추정 — 도면 확인 필요"
+            case .geometry: return "형상 자동 분류 — 부위 구분 아님"
+            }
+        }
+    }
+
+    struct Taxonomy {
+        var root: String
+        /// 정규화된 엔티티 경로 → 노드
+        var byPath: [String: Node]
+        /// 조인 안 된 엔티티 경로
+        var unmatched: [String]
+        var source: Source
+    }
+
+    /// 사이드카 계층 정보로 분류한다.
+    static func fromSidecar(_ meta: RebarMetaFile, entityPaths: [String]) -> Taxonomy {
+        var byPrim: [String: RebarMetaFile.Entry] = [:]
+        for r in meta.rebars { byPrim[normalizePrimPath(r.prim)] = r }
+
+        var byPath: [String: Node] = [:]
+        var unmatched: [String] = []
+        var nodeByPrim: [String: Node] = [:]
+
+        for p in entityPaths {
+            let key = normalizePrimPath(stripComponentIndex(p))
+            guard let hit = byPrim[key] else {
+                unmatched.append(p)
+                continue
+            }
+            var node = nodeByPrim[key] ?? Node(
+                path: hit.path,
+                label: hit.label ?? composeLabel(path: hit.path, no: hit.no),
+                no: hit.no,
+                paths: []
+            )
+            node.paths.append(p)
+            nodeByPrim[key] = node
+        }
+        // 같은 prim을 공유하는 경로들이 같은 노드(=같은 paths 배열)를 보게 맞춘다
+        for (_, node) in nodeByPrim {
+            for p in node.paths { byPath[p] = node }
+        }
+        return Taxonomy(root: meta.structure, byPath: byPath, unmatched: unmatched, source: .sidecar)
+    }
+
+    /// prim 이름에서 계층을 유도한다. 해석률이 임계 미만이면 nil.
+    static func fromPrimNames(entityPaths: [String]) -> Taxonomy? {
+        guard !entityPaths.isEmpty else { return nil }
+
+        var byPath: [String: Node] = [:]
+        var unmatched: [String] = []
+        var nodeByPrim: [String: Node] = [:]
+
+        for p in entityPaths {
+            let key = normalizePrimPath(stripComponentIndex(p))
+            let leaf = String(key.split(separator: "/").last ?? "")
+            guard let parsed = parsePrimName(leaf) else {
+                unmatched.append(p)
+                continue
+            }
+            var node = nodeByPrim[key] ?? Node(
+                path: parsed.path,
+                label: composeLabel(path: parsed.path, no: parsed.no),
+                no: parsed.no,
+                paths: []
+            )
+            node.paths.append(p)
+            nodeByPrim[key] = node
+        }
+        for (_, node) in nodeByPrim {
+            for p in node.paths { byPath[p] = node }
+        }
+
+        let ratio = Double(byPath.count) / Double(entityPaths.count)
+        guard ratio >= primNameMinRatio else { return nil }
+        return Taxonomy(root: "구조물", byPath: byPath, unmatched: unmatched, source: .primName)
+    }
+
+    // MARK: - 트리 조립
+
+    final class TreeNode {
+        let value: String
+        let label: String
+        /// 이 서브트리에 매달린 엔티티 경로 전체
+        private(set) var paths: [String] = []
+        private(set) var children: [TreeNode] = []
+        private var childIndex: [String: TreeNode] = [:]
+
+        init(value: String, label: String) {
+            self.value = value
+            self.label = label
+        }
+
+        var count: Int { paths.count }
+
+        func child(value: String, label: String) -> TreeNode {
+            if let existing = childIndex[value] { return existing }
+            let node = TreeNode(value: value, label: label)
+            childIndex[value] = node
+            children.append(node)
+            return node
+        }
+
+        func add(paths newPaths: [String]) { paths.append(contentsOf: newPaths) }
+    }
+
+    /// 조인 안 된 철근이 모이는 고정 노드의 value.
+    static let unclassifiedValue = "__unclassified__"
+
+    /// Taxonomy → 중첩 트리. `unmatched`가 있으면 「분류 없음」을 마지막에 붙인다.
+    static func buildTree(_ t: Taxonomy) -> [TreeNode] {
+        let root = TreeNode(value: "", label: t.root)
+        var seen = Set<String>()
+
+        // 노드 객체는 값 타입이라 참조 비교가 안 된다 — prim 키로 중복을 거른다
+        for (_, node) in t.byPath {
+            let key = node.paths.sorted().joined(separator: "|")
+            if seen.contains(key) { continue }
+            seen.insert(key)
+
+            var level = root
+            var segs: [String] = []
+            for seg in node.path {
+                segs.append(seg)
+                let child = level.child(value: segs.joined(separator: "/"), label: seg)
+                child.add(paths: node.paths)
+                level = child
+            }
+            let leafValue = normalizePrimPath(stripComponentIndex(node.paths.first ?? ""))
+            let leaf = level.child(value: leafValue, label: node.label)
+            if leaf.paths.isEmpty { leaf.add(paths: node.paths) }
+        }
+
+        var out = root.children
+        if !t.unmatched.isEmpty {
+            let node = TreeNode(value: unclassifiedValue, label: "분류 없음 (\(t.unmatched.count))")
+            node.add(paths: t.unmatched)
+            out.append(node)
+        }
+        return out
+    }
+
+    /// 트리의 모든 노드 value — 초기 "전부 체크" 상태.
+    static func allValues(_ nodes: [TreeNode]) -> Set<String> {
+        var out: Set<String> = []
+        func walk(_ ns: [TreeNode]) {
+            for n in ns {
+                out.insert(n.value)
+                walk(n.children)
+            }
+        }
+        walk(nodes)
+        return out
+    }
+
+    /// 체크된 노드 → 보여야 할 엔티티 경로 집합.
+    static func visiblePaths(_ nodes: [TreeNode], checked: Set<String>) -> Set<String> {
+        var out: Set<String> = []
+        func walk(_ ns: [TreeNode]) {
+            for n in ns {
+                if checked.contains(n.value) { out.formUnion(n.paths) }
+                walk(n.children)
+            }
+        }
+        walk(nodes)
+        return out
+    }
+}

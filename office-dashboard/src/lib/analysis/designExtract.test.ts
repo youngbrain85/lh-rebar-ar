@@ -64,18 +64,27 @@ describe("rebarsFromMeshes", () => {
     index: [base + 0, base + 1, base + 2, base + 1, base + 3, base + 2].map((i) => i - base),
   });
 
+  // 길이 0.05m — minLength(0.1m)에 걸려 필터되는 파편
+  const stubBar = (ox: number) => ({
+    positions: [ox, 0, 0, ox + 0.005, 0, 0, ox, 0.05, 0],
+    index: [0, 1, 2],
+  });
+
   it("splits a rebar-set mesh into per-bar components with #k ids", () => {
-    // 한 명명 메시 안에 서로 떨어진 막대 2개 (Revit 세트 시뮬레이션)
+    // 한 prim 안에 서로 떨어진 막대 2개 (Revit 세트 시뮬레이션)
     const b1 = bar(0, 0, 0);
     const b2 = bar(0.3, 0, 0);
     const mesh = {
       name: "Rebar_Set",
+      path: "/Root/Rebar_Set",
       positions: [...b1.positions, ...b2.positions],
       index: [...b1.index, ...b2.index.map((i) => i + 4)],
     };
-    const rebars = rebarsFromMeshes([mesh]);
+    const { rebars } = rebarsFromMeshes([mesh]);
     expect(rebars.length).toBe(2);
-    expect(rebars.map((r) => r.id).sort()).toEqual(["Rebar_Set#0", "Rebar_Set#1"]);
+    expect(rebars.map((r) => r.id).sort()).toEqual([
+      "/Root/Rebar_Set#0", "/Root/Rebar_Set#1",
+    ]);
     for (const r of rebars) {
       const [a, b] = r.centerline;
       expect(Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2])).toBeGreaterThan(0.9);
@@ -83,34 +92,85 @@ describe("rebarsFromMeshes", () => {
     }
   });
 
-  it("keeps the bare name for single-component groups", () => {
-    const rebars = rebarsFromMeshes([{ name: "rebar_0_PASS", ...bar(0, 0, 0) }]);
+  it("keeps the bare path for single-component groups", () => {
+    const { rebars } = rebarsFromMeshes([
+      { name: "rebar_0_PASS", path: "/Root/Meshes/rebar_0_PASS", ...bar(0, 0, 0) },
+    ]);
     expect(rebars.length).toBe(1);
-    expect(rebars[0].id).toBe("rebar_0_PASS");
+    expect(rebars[0].id).toBe("/Root/Meshes/rebar_0_PASS");
   });
 
   it("filters out fat (wall-like) and short components", () => {
     // 벽: 1m x 1m x 0.28m 박스 꼭짓점(반경이 maxRadius를 초과)
     const wall = {
       name: "Basic_Wall",
+      path: "/Root/Basic_Wall",
       positions: [
         0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0,
         0, 0, 0.28, 1, 0, 0.28, 1, 1, 0.28, 0, 1, 0.28,
       ],
       index: [0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7, 0, 1, 5, 0, 5, 4],
     };
-    const stub = { name: "stub", positions: [0, 0, 0, 0.005, 0, 0, 0, 0.05, 0], index: [0, 1, 2] };
-    const rebars = rebarsFromMeshes([wall, stub, { name: "bar", ...bar(0, 0, 0) }]);
-    expect(rebars.map((r) => r.id)).toEqual(["bar"]);
+    const stub = { name: "stub", path: "/Root/stub", ...stubBar(0) };
+    const { rebars } = rebarsFromMeshes([
+      wall, stub, { name: "bar", path: "/Root/bar", ...bar(0, 0, 0) },
+    ]);
+    expect(rebars.map((r) => r.id)).toEqual(["/Root/bar"]);
   });
 
   it("bundled OBJ groups (no index) still yield 27 bare-named rebars", () => {
     const objPath = resolve(__dirname, "../../../../source-models/highlighted_design_model.obj");
     const groups = parseObjGroups(readFileSync(objPath, "utf8"));
-    const rebars = rebarsFromMeshes(
-      groups.map((g) => ({ name: g.name, positions: g.vertices.flat(), index: null })),
+    const { rebars } = rebarsFromMeshes(
+      groups.map((g) => ({
+        name: g.name, path: `/Root/${g.name}`, positions: g.vertices.flat(), index: null,
+      })),
     );
     expect(rebars.length).toBe(27);
     expect(rebars.every((r) => !r.id.includes("#"))).toBe(true);
+  });
+
+  // ---- 경로 기반 id (spec §6.1) ----
+
+  it("부모가 다르면 같은 리프 이름도 뭉치지 않는다", () => {
+    const { rebars } = rebarsFromMeshes([
+      { name: "bar", path: "/Root/A/bar", ...bar(0, 0, 0) },
+      { name: "bar", path: "/Root/B/bar", ...bar(0.3, 0, 0) },
+    ]);
+    expect(rebars.map((r) => r.id).sort()).toEqual(["/Root/A/bar", "/Root/B/bar"]);
+  });
+
+  it("같은 경로가 두 번 오면 duplicatePaths에 보고한다", () => {
+    const { rebars, duplicatePaths } = rebarsFromMeshes([
+      { name: "bar", path: "/Root/bar", ...bar(0, 0, 0) },
+      { name: "bar", path: "/Root/bar", ...bar(0.3, 0, 0) },
+    ]);
+    expect(duplicatePaths).toEqual(["/Root/bar"]);
+    // 뭉쳐진 결과는 #k로 갈린다 — 조용히 넘어가지 않는다는 것이 요점
+    expect(rebars.map((r) => r.id).sort()).toEqual(["/Root/bar#0", "/Root/bar#1"]);
+  });
+
+  it("필터로 걸러지는 파편이 생겨도 나머지 id가 변하지 않는다", () => {
+    const b1 = bar(0, 0, 0);
+    const b2 = bar(0.3, 0, 0);
+    const clean = rebarsFromMeshes([{
+      name: "s", path: "/R/s",
+      positions: [...b1.positions, ...b2.positions],
+      index: [...b1.index, ...b2.index.map((i) => i + 4)],
+    }]);
+    // 파편을 **정점 버퍼 맨 앞**에 넣는다 — 필터를 나중에 걸던 옛 동작에서는
+    // 파편이 k=0을 차지해 나머지가 #1/#2로 밀렸다.
+    const frag = stubBar(-1);
+    const withFragment = rebarsFromMeshes([{
+      name: "s", path: "/R/s",
+      positions: [...frag.positions, ...b1.positions, ...b2.positions],
+      index: [
+        ...frag.index,
+        ...b1.index.map((i) => i + 3),
+        ...b2.index.map((i) => i + 7),
+      ],
+    }]);
+    expect(clean.rebars.map((r) => r.id)).toEqual(["/R/s#0", "/R/s#1"]);
+    expect(withFragment.rebars.map((r) => r.id)).toEqual(clean.rebars.map((r) => r.id));
   });
 });

@@ -28,8 +28,11 @@ screens each shows — see `AppFeatures.swift` and gotcha #13 in §5. The client
 feature table put 길이 측정 (length measurement) under LH-only, but it's an
 existing, field-verified feature — the team decided (2026-08-05) to keep it in
 the research app too rather than take that as a net loss. The two apps' only
-remaining functional difference is 실시간 협업 (live collaboration), and later,
-철근 종류별 필터링.
+remaining functional difference is 실시간 협업 (live collaboration) and
+**철근 계층(부위/면/방향)별 필터** (`AppFeatures.rebarFilter`, LH app only —
+built 2026-08-05, not yet device-verified). Note the axis: the client's feature
+table said "철근 종류별 필터링" (main bar / stirrup / tie); what exists is the
+**부위 계층** (전벽/저판/헌치 × 면 × 방향). The 종류 axis is still unbuilt.
 
 Data comes from the **BriconLab backend** (`http://api.briconlab.com:50001`).
 Live video/audio/data runs over **LiveKit Cloud** (`wss://ar-w5h0quhi.livekit.cloud`).
@@ -203,6 +206,26 @@ screen is the device screen, so the field app raycasts that point directly.
     스위치를 더하고 화면에서 그걸 읽는다. `#if LH_ONLY`를 화면 코드에 흩뿌리지 말 것 — 두 앱의
     차이를 한 파일에서 볼 수 없게 되는 순간 유지가 어려워진다.
 
+14. **CI는 실행마다 개발 인증서를 새로 만든다 — 고정 인증서를 시크릿에 넣어 막는다.**
+    `xcodebuild archive`는 자동 서명 + Release 조합에서 **개발(Development) 서명**으로 아카이브를
+    만들고(배포 서명은 `-exportArchive`에서 다시 입힌다), 러너 키체인은 매 실행 비어 있으므로
+    `-allowProvisioningUpdates`가 Apple에 개발 인증서를 새로 요청한다. Apple의 인증서 한도에 걸리면
+    아카이브가 이 오류로 죽는다 — 메시지가 "certificate"라고만 해서 배포 인증서 문제로 오해하기 쉽지만
+    두 번째 줄이 **`iOS App Development` provisioning profiles**라고 정확히 말해준다:
+    ```
+    error: Choose a certificate to revoke. Your account has reached the maximum number of certificates.
+    error: No profiles for 'kr.lh.rebar-ar' were found: Xcode couldn't find any
+           iOS App Development provisioning profiles matching 'kr.lh.rebar-ar'.
+    ```
+    2026-08-06 실측: ASC 인증서 15개 중 **10개가 `Created via API` 개발 인증서**였고 생성 시각이 CI 실행
+    10회와 하나씩 대응했다(배포 인증서는 사람 것 1개 그대로). 그 10개는 개인키가 러너와 함께 사라져
+    아무도 못 쓰는 껍데기다. 폐기 후 `scripts/asc_cert.py create --type DEVELOPMENT`로 고정 인증서를
+    하나 만들어 `IOS_DIST_CERT_P12`/`IOS_DIST_CERT_PASSWORD` 시크릿에 넣었다(`RBHF959AY5`). 검증:
+    고정 인증서 도입 후 실행에서 **인증서 개수가 늘지 않았다**.
+    - 인증서 관리는 `scripts/asc_cert.py list|create|revoke` — **Mac 없이 Windows에서 된다**(openssl + pyjwt + cryptography).
+    - `Jisoo Park` 이름의 인증서는 사람 것이다. **폐기하지 말 것.**
+    - `.p12`가 만료(1년)되면 같은 방법으로 다시 만들어 시크릿만 교체한다.
+
 ---
 
 ## 6. Workflows
@@ -255,6 +278,8 @@ export with **API-key cloud signing** → altool upload (only when
 | `ASC_ISSUER_ID` | `40dabd9c-8645-44e4-9754-c6eefe759320` |
 | `ASC_API_KEY_P8` | the key's `.p8` contents |
 | `LIVESHARE_CONFIG_SWIFT` | contents of `LHRebarAR/Services/LiveShareConfig.swift` (gitignored) |
+| `IOS_DIST_CERT_P12` | base64 of a **fixed signing certificate** (`.p12`, cert + private key). Without it the archive creates a NEW Apple Development cert every run and jams on Apple's limit — see gotcha #14 |
+| `IOS_DIST_CERT_PASSWORD` | that `.p12`'s password |
 
 ### Deploy the dashboard
 ```bash
@@ -290,6 +315,12 @@ The app normally fetches tokens from the dashboard at runtime; the embedded
 - `POST /analysis/measurement-upload` — spec written in `api/MEASUREMENT_UPLOAD_REQUEST.md` (multipart: image + site_id + ar_id + inspector + remark + captured_at + `measurements[]` with name/points/distance/h/v/source). Once it exists, wire the capture flow to upload instead of only saving to Photos.
 - as-built 스캔 저장 API — 스펙 `api/SCAN_STORAGE_REQUEST.md`. 구현되면
   대시보드 API 라우트 내부만 프록시로 교체 (클라이언트 무변경).
+- **철근 계층 사이드카** `GET /analysis/rebar-meta?ar_id=` — 스펙
+  `api/REBAR_TAXONOMY_REQUEST.md`. 구현되면 트리가 도면 기반 부위 계층
+  (전벽-전면-수직철근-01)으로 올라간다. 없어도 prim 이름 코드북 폴백으로
+  동작하므로 **대기 항목이지 블로커가 아니다**. 옹벽 설계 모델 샘플 1개도
+  같이 요청해 뒀다 — 가닥별 prim 분리가 설계 변환 경로에서도 성립하는지는
+  아직 미확인이다(as-built 생성기에서만 확인됨).
 
 **Ready to build when wanted:**
 - Automatic periodic re-lock (currently manual scope button)

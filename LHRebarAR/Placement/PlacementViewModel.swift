@@ -22,6 +22,17 @@ final class PlacementViewModel: ObservableObject {
     let fine = FineAdjustmentViewModel()
     let visualLock = VisualLockService()
 
+    // MARK: - 철근 계층 필터 (spec §7.2)
+
+    /// 트리 노드 체크 상태. 비어 있지 않으면 필터가 걸린 상태다.
+    @Published private(set) var rebarTree: [RebarTaxonomy.TreeNode] = []
+    @Published private(set) var rebarSource: RebarTaxonomy.Source = .geometry
+    @Published var checkedRebarNodes: Set<String> = [] {
+        didSet { if oldValue != checkedRebarNodes { applyRebarFilter() } }
+    }
+    /// `setHidden`이 하나도 못 맞췄을 때 UI가 알 수 있게 — 0이면 조인 실패다
+    @Published private(set) var lastFilterMatchCount: Int?
+
     private var loadedTemplate: Entity?
     private var anchorController: ModelAnchorController?
     private var gestureCoordinator: GestureCoordinator?
@@ -64,6 +75,10 @@ final class PlacementViewModel: ObservableObject {
         let instance = template.clone(recursive: true)
         anchorController?.place(model: instance, at: hit.worldTransform)
         anchorController?.setOpacity(modelOpacity)
+        // 배치되는 것은 템플릿의 clone이라 엔티티 참조가 매번 바뀐다 — 필터 상태를
+        // 경로 문자열로 들고 배치할 때마다 다시 적용한다 (spec §7.2)
+        rebuildRebarTree()
+        applyRebarFilter()
         gestureCoordinator?.resetAfterPlacement()
         gestureCoordinator?.setEnabled(gesturesEnabled)
         fine.captureBase()
@@ -85,6 +100,63 @@ final class PlacementViewModel: ObservableObject {
             placementHistory.removeFirst(placementHistory.count - placementHistoryCap)
         }
         AppLogger.shared.logPlacementLatency(elapsedMs, hitSource: measurement.sourceLabel)
+    }
+
+    // MARK: - 철근 계층 필터
+
+    /// 배치된 모델의 엔티티 경로로 트리를 다시 만든다.
+    /// 사이드카가 있으면 그것으로, 없으면 prim 이름 코드북으로. 둘 다 안 되면 트리를 비운다
+    /// (형상 자동 분류 3단계는 대시보드 분석 산출물이 있어야 돌아 앱에서는 성립하지 않는다).
+    func rebuildRebarTree() {
+        guard AppFeatures.rebarFilter, let controller = anchorController,
+              let model = controller.modelEntity else {
+            rebarTree = []
+            return
+        }
+        let paths = ModelAnchorController.meshNodePaths(of: model)
+
+        if let meta = rebarMeta, meta.isUsable {
+            let t = RebarTaxonomy.fromSidecar(meta, entityPaths: paths)
+            if !t.byPath.isEmpty {
+                rebarTree = RebarTaxonomy.buildTree(t)
+                rebarSource = t.source
+                checkedRebarNodes = RebarTaxonomy.allValues(rebarTree)
+                return
+            }
+        }
+        if let t = RebarTaxonomy.fromPrimNames(entityPaths: paths) {
+            rebarTree = RebarTaxonomy.buildTree(t)
+            rebarSource = t.source
+            checkedRebarNodes = RebarTaxonomy.allValues(rebarTree)
+            return
+        }
+        // 이름이 규약을 안 따르면 계층 없이 평평하게 나열한다 — 개별 토글은 유지된다
+        // (spec §7.5). 아무것도 못 하는 것보다 낫다.
+        let flat = RebarTaxonomy.Taxonomy(
+            root: "전체", byPath: [:], unmatched: paths, source: .geometry
+        )
+        rebarTree = RebarTaxonomy.buildTree(flat)
+        rebarSource = .geometry
+        checkedRebarNodes = RebarTaxonomy.allValues(rebarTree)
+    }
+
+    /// 사이드카 계층 정보. 모델과 함께 받아 둔다(없으면 nil → 이름 기반 폴백).
+    var rebarMeta: RebarMetaFile?
+
+    private func applyRebarFilter() {
+        guard AppFeatures.rebarFilter, !rebarTree.isEmpty else { return }
+        let all = RebarTaxonomy.allValues(rebarTree)
+        // 전부 체크된 상태는 "필터 없음"이다 — 굳이 집합을 만들지 않는다
+        let visible: Set<String>? = checkedRebarNodes == all
+            ? nil
+            : RebarTaxonomy.visiblePaths(rebarTree, checked: checkedRebarNodes)
+        let matched = anchorController?.applyVisibility(visible) ?? 0
+        lastFilterMatchCount = matched
+        // 0이면 조인 실패 — 다른 모델을 배치했거나 이름이 안 맞는다. 필터를 비워
+        // "아무것도 안 숨긴 채 필터가 걸린 것처럼 보이는" 상태로 두지 않는다.
+        if matched == 0 && visible != nil {
+            checkedRebarNodes = all
+        }
     }
 
     func clearPlacementHistory() {

@@ -59,6 +59,12 @@ export interface ViewerProps {
   /** 컨투어 색 상한 (mm) */
   contourMax: number;
   focusKey: string | null;
+  /**
+   * 철근 계층 트리로 고른 표시 대상 키 집합. null이면 필터가 걸리지 않은 상태(전체 표시).
+   * 키는 `keyed` 맵의 키와 같다 — 설계 경로에서는 `designId ?? scanId`, noDesign
+   * 경로에서는 스캔 id.
+   */
+  visibleKeys?: ReadonlySet<string> | null;
 }
 
 /** Group 하위의 지오메트리/머티리얼을 dispose하고 비운다 (Group.clear는 detach만 한다) */
@@ -152,7 +158,7 @@ function contourMesh(field: ContourField, maxMm: number): THREE.Mesh {
 
 export default function AnalysisViewer({
   designObject, records, design, scan, showVerdicts, noDesign, showDesign, showScanBars,
-  showMesh, meshUrl, registrationMatrix, contour, contourMax, focusKey,
+  showMesh, meshUrl, registrationMatrix, contour, contourMax, focusKey, visibleKeys = null,
 }: ViewerProps) {
   const mountRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<{
@@ -259,13 +265,25 @@ export default function AnalysisViewer({
     if (designObject) designObject.visible = showDesign;
   }, [designObject, showDesign]);
 
-  // ---- 판정 오버레이 (records 변경 시 재구성) ----
+  // 재프레이밍 조건에서만 읽는다 — 구성 이펙트의 deps에 넣으면 칩 토글마다
+  // 오버레이가 통째로 재생성된다(아래 「구성 ↔ 가시성 분리」 참조).
+  const showScanBarsRef = useRef(showScanBars);
+  showScanBarsRef.current = showScanBars;
+
+  // ---- 판정 오버레이 「구성」 (records 변경 시에만 재구성) ----
+  //
+  // ★ 구성과 가시성을 분리한다. 예전에는 showVerdicts/showScanBars가 이 이펙트의
+  //   조건이자 deps여서, 필터로 꺼둔 철근은 `keyed`에 아예 들어가지 않았다. 그러면
+  //   계층 트리에서 그 철근을 체크해도 `keyed.get()`이 undefined라 3D에 나타나지
+  //   않는다(배지는 48인데 30개만 켜지는 증상). 여기서는 **모든** 레코드의 Group을
+  //   만들고, 세 필터(판정 칩·시공 철근 칩·계층 트리)는 아래 가시성 이펙트에서
+  //   논리곱으로만 처리한다.
   useEffect(() => {
     const s = sceneRef.current;
     if (!s) return;
     disposeChildren(s.overlay);
     s.keyed.clear();
-    if (showScanBars) {
+    {
       if (noDesign) {
         // 판정할 설계가 없는 결과라 records는 항상 빈 배열이다 — 그렇다고 화면을 비워두면
         // 3D 뷰 왼쪽이 통째로 빈 채로 열린다. scan(이미 스캔 자신의 프레임으로 분류됨)을
@@ -282,7 +300,6 @@ export default function AnalysisViewer({
         const designById = new Map(design.map((r) => [r.id, r]));
         const scanById = new Map(scan.map((r) => [r.id, r]));
         for (const rec of records) {
-          if (!showVerdicts.includes(rec.verdict)) continue;
           const key = rec.designId ?? rec.scanId ?? "";
           const color = VERDICT_COLOR[rec.verdict];
           let group: THREE.Group | null = null;
@@ -314,7 +331,10 @@ export default function AnalysisViewer({
     // 전환했을 때(진짜 비었다가 채워지는 전환) 재프레이밍이 못 잡히기 때문이다.
     const dataEmpty = !noDesign || scan.length === 0;
     const designVisible = !!designObject && showDesign;
-    if (noDesign && !dataEmpty && dataWasEmptyRef.current && !designVisible && !userMovedRef.current) {
+    if (
+      noDesign && !dataEmpty && dataWasEmptyRef.current && !designVisible &&
+      !userMovedRef.current && showScanBarsRef.current
+    ) {
       const box = new THREE.Box3().setFromObject(s.overlay);
       if (!box.isEmpty()) {
         const size = box.getSize(new THREE.Vector3());
@@ -326,7 +346,26 @@ export default function AnalysisViewer({
       }
     }
     dataWasEmptyRef.current = dataEmpty;
-  }, [records, design, scan, showVerdicts, showScanBars, noDesign, designObject, showDesign]);
+  }, [records, design, scan, noDesign, designObject, showDesign]);
+
+  // ---- 판정 오버레이 「가시성」 ----
+  // 세 필터를 논리곱으로만 처리한다. 구성 이펙트 다음에 선언돼 있어야 같은 커밋에서
+  // 재구성 직후 올바른 가시성이 적용된다 (React는 선언 순서대로 이펙트를 실행한다).
+  useEffect(() => {
+    const s = sceneRef.current;
+    if (!s) return;
+    const verdictOf = new Map(
+      records.map((r) => [r.designId ?? r.scanId ?? "", r.verdict] as const),
+    );
+    for (const [key, group] of s.keyed) {
+      const v = verdictOf.get(key);
+      group.visible =
+        showScanBars &&
+        // noDesign 결과에는 판정이 없다 — 칩도 숨겨져 있으므로 통과시킨다
+        (noDesign || v === undefined || showVerdicts.includes(v)) &&
+        (visibleKeys === null || visibleKeys.has(key));
+    }
+  }, [records, showVerdicts, showScanBars, noDesign, visibleKeys]);
 
   // ---- 컨투어 평면 ----
   // 정합이 실패했을 때는 호출부(Task 7)가 contour에 null을 넘긴다. 실패한 정합의

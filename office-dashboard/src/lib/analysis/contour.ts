@@ -101,6 +101,33 @@ export interface ContourSample {
 }
 
 /**
+ * 표본들이 벽면 **법선 방향**으로 얼마나 퍼져 있는가 (m).
+ *
+ * `buildContourField`는 표본을 `(u,v)`로 정사영하며 법선 성분을 버린다. 벽면 안에
+ * 놓인 철근은 그래도 되지만, 저판(수평 부재)이나 헌치처럼 깊이 방향으로 퍼진
+ * 철근만 골라놓으면 깊이가 다른 수십 개가 같은 칸에 겹쳐 평균된 색 띠 하나가
+ * 그려진다 — 부정확한 게 아니라 **무의미한 지도**다. 그럴 땐 그리지 않는다.
+ */
+export function normalSpread(samples: ContourSample[], plane: WallPlane): number {
+  if (samples.length === 0) return 0;
+  const n = normalize(cross(plane.axisU, plane.axisV));
+  let min = Infinity, max = -Infinity;
+  for (const s of samples) {
+    const t = dot(sub(s.midpoint, plane.origin), n);
+    if (t < min) min = t;
+    if (t > max) max = t;
+  }
+  return max - min;
+}
+
+/**
+ * 법선 방향 퍼짐이 이 값을 넘으면 벽면 지도로 표현할 수 없다고 본다 (m).
+ * 한 벽체의 배근층은 피복 포함 0.5m 안에 들어간다 — 그보다 넓게 퍼졌다면
+ * 서로 다른 부재를 한 평면에 눌러 담고 있다는 뜻이다.
+ */
+export const MAX_NORMAL_SPREAD_M = 0.5;
+
+/**
  * 역거리가중(IDW) 보간. 값은 편차의 절댓값이다.
  * radiusM 밖에 표본이 하나도 없는 칸은 null로 남겨 렌더에서 비운다.
  */

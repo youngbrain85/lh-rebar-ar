@@ -34,10 +34,30 @@ export function rebarsFromGroups(groups: { name: string; vertices: Vec3[] }[]): 
 
 export interface MeshData {
   name: string;
+  /**
+   * USDZ prim 절대 경로 (예: `/RebarModel/Stem_Front_Vert_01`). **필수**.
+   *
+   * 이름이 아니라 경로로 그룹핑하는 이유: `loadDesign`이 읽는 것은 오브젝트(부재)
+   * 이름이 아니라 **메시 데이터블록 이름**이고, Blender USD 익스포터는 오브젝트
+   * 이름에는 형제 중복 회피를 걸지만 메시 데이터 이름에는 걸지 않는다. 같은 규격
+   * 철근이 지오메트리를 공유하면(FBX 인스턴싱) 이름이 대량 중복되고, 그러면 아래
+   * 단일/다중 분기가 뒤집혀 **무고한 철근의 id까지 바뀐다**. 그 id는 분석 결과에
+   * 저장돼 조인 키로 다시 쓰이므로 실패가 조용하다.
+   *
+   * optional + `path ?? name` 폴백으로 두지 않는 것도 같은 이유다 — 폴백은 그
+   * 조용한 실패를 그대로 남긴다.
+   */
+  path: string;
   /** world-space, flat [x,y,z,...] */
   positions: number[];
   /** 삼각형 인덱스 — 없으면 메시 전체를 한 덩어리로 취급 */
   index: number[] | null;
+}
+
+export interface RebarsFromMeshesResult {
+  rebars: Rebar[];
+  /** 두 번 이상 나타난 prim 경로 — R1/R3 위반 신호. 비어 있어야 정상 */
+  duplicatePaths: string[];
 }
 
 export interface RebarFilter {
@@ -47,18 +67,36 @@ export interface RebarFilter {
   minLength?: number;
 }
 
+/** 정점군의 산술 중심 — 연결요소 정렬 키 */
+function centroid(vertices: Vec3[]): Vec3 {
+  let x = 0, y = 0, z = 0;
+  for (const v of vertices) { x += v[0]; y += v[1]; z += v[2]; }
+  const n = vertices.length || 1;
+  return [x / n, y / n, z / n];
+}
+
 /**
  * 메시들 → 물리 철근 단위 Rebar[].
- * Revit류 내보내기는 철근 "세트"(한 명명 요소에 여러 가닥)를 쓰므로, 이름 그룹핑만으로는
+ * Revit류 내보내기는 철근 "세트"(한 명명 요소에 여러 가닥)를 쓰므로, 그룹핑만으로는
  * 세트 전체가 한 덩어리가 된다 — 각 메시를 연결요소로 분리해 가닥 단위로 만든다.
- * 이름당 연결요소가 1개면 id는 이름 그대로(번들 샘플 호환), 여러 개면 `이름#k`.
+ * 경로당 연결요소가 1개면 id는 경로 그대로, 여러 개면 `경로#k`.
  * 굵은 지오메트리(벽)와 짧은 조각은 필터로 제외한다 (곡선 철근은 v1 범위 외 — spec §9).
+ *
+ * ★ 순서가 중요하다: **필터 → 중심점 정렬 → k 부여**.
+ *  - 필터를 뒤에 걸면(옛 동작) 짧은 파편 하나가 생기거나 사라질 때 무고한 철근의 id가
+ *    `경로` ↔ `경로#1`로 뒤집힌다. 단일/다중 분기도 **필터 후** 개수로 판정해야 한다.
+ *  - 중심점 정렬이 없으면 k가 `splitByConnectivity`의 정점 버퍼 순서에 의존해,
+ *    모델을 다시 내보내는 것만으로 잎의 신원이 조용히 바뀐다.
  */
-export function rebarsFromMeshes(meshes: MeshData[], filter: RebarFilter = {}): Rebar[] {
+export function rebarsFromMeshes(
+  meshes: MeshData[],
+  filter: RebarFilter = {},
+): RebarsFromMeshesResult {
   const maxRadius = filter.maxRadius ?? 0.05;
   const minLength = filter.minLength ?? 0.1;
 
-  const byName = new Map<string, Vec3[][]>();
+  const byPath = new Map<string, Vec3[][]>();
+  const duplicatePaths: string[] = [];
   for (const m of meshes) {
     const comps = m.index
       ? splitByConnectivity(m.positions, m.index)
@@ -67,22 +105,40 @@ export function rebarsFromMeshes(meshes: MeshData[], filter: RebarFilter = {}): 
             m.positions[i * 3], m.positions[i * 3 + 1], m.positions[i * 3 + 2],
           ]),
         ];
-    const arr = byName.get(m.name) ?? [];
+    if (byPath.has(m.path)) duplicatePaths.push(m.path);
+    const arr = byPath.get(m.path) ?? [];
     arr.push(...comps.filter((c) => c.length >= 3));
-    byName.set(m.name, arr);
+    byPath.set(m.path, arr);
   }
 
   const out: Rebar[] = [];
-  for (const [name, comps] of byName) {
-    comps.forEach((vertices, k) => {
-      const { centerline, radius } = extractCenterline(vertices);
-      const [a, b] = centerline;
-      const length = Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
-      if (radius >= maxRadius || length <= minLength) return;
-      out.push({ id: comps.length === 1 ? name : `${name}#${k}`, centerline, radius });
+  for (const [path, comps] of byPath) {
+    // 1) 필터 먼저 — 살아남은 것만 k 부여 대상
+    const kept = comps
+      .map((vertices) => ({ vertices, ...extractCenterline(vertices) }))
+      .filter(({ centerline, radius }) => {
+        const [a, b] = centerline;
+        const length = Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+        return radius < maxRadius && length > minLength;
+      });
+    // 2) 중심점 사전순 — 정점 버퍼 순서 의존 제거
+    kept.sort((p, q) => {
+      const cp = centroid(p.vertices), cq = centroid(q.vertices);
+      return cp[0] - cq[0] || cp[1] - cq[1] || cp[2] - cq[2];
+    });
+    // 3) 필터 후 개수로 단일/다중 판정
+    kept.forEach(({ centerline, radius }, k) => {
+      out.push({ id: kept.length === 1 ? path : `${path}#${k}`, centerline, radius });
     });
   }
-  return out;
+
+  if (duplicatePaths.length > 0) {
+    console.warn(
+      `[designExtract] 중복 prim 경로 ${duplicatePaths.length}건 — 철근 id가 뒤섞일 수 있습니다`,
+      duplicatePaths,
+    );
+  }
+  return { rebars: out, duplicatePaths };
 }
 
 /** 삼각형 인덱스 union-find 연결요소 분리 — 이름 없는 단일 메시 폴백 */

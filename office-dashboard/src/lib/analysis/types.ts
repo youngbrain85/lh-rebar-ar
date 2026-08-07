@@ -93,6 +93,18 @@ export interface AnalysisSummary {
 
 export interface AnalysisResult {
   version: 2;
+  /**
+   * `designId`/`Rebar.id`가 어느 규칙으로 만들어졌는가.
+   * - `"name"` (필드 없음과 동일) — 옛 규칙: 메시 데이터블록 **이름**
+   * - `"path"` — 현 규칙: USDZ prim **경로** (spec §6.1)
+   *
+   * version을 올리지 않는 이유: 스키마가 아니라 id의 *값* 규칙만 바뀌었고,
+   * optional 필드라 기존 blob이 그대로 로드된다. 다만 옛 스킴으로 저장된
+   * 결과는 사이드카 prim 경로와 조인되지 않으므로 UI가 배지로 알려야 한다 —
+   * 그게 없으면 "어떤 스캔은 계층이 나오고 어떤 건 안 나온다"가 되고
+   * 원인을 알 방법이 없다.
+   */
+  idScheme?: "name" | "path";
   scanId: string;
   arId: string;
   registration: RegistrationResult;
