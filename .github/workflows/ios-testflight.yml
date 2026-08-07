@@ -104,6 +104,47 @@ jobs:
           echo "Next build number: $N"
           /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $N" ${{ matrix.plist }}
 
+      # 고정 배포 인증서를 키체인에 넣는다 — 이게 있으면 Xcode가 **새 인증서를
+      # 만들지 않는다**.
+      #
+      # 왜 필요한가: `-allowProvisioningUpdates` 클라우드 서명은 러너 키체인이 비어
+      # 있으면 Apple에 배포 인증서를 새로 요청한다. 러너는 매 실행 새 머신이라
+      # 키체인이 항상 비어 있고, Apple의 배포 인증서 한도는 2~3개다. 그래서 한두 번
+      # 빌드할 때마다 "Choose a certificate to revoke. Your account has reached the
+      # maximum number of certificates."로 아카이브가 죽었다. 사람이 포털에서 계속
+      # 폐기해 주는 것 말고는 방법이 없었다.
+      #
+      # 인증서는 `scripts/asc_cert.py create`로 만든다(Mac 없이 Windows에서 가능).
+      # 시크릿이 없으면 이 스텝은 통째로 건너뛰고 기존 클라우드 서명으로 동작한다.
+      - name: Import distribution certificate
+        if: ${{ secrets.IOS_DIST_CERT_P12 != '' && (github.event.inputs.app == 'both' || github.event.inputs.app == matrix.app) }}
+        env:
+          P12_BASE64: ${{ secrets.IOS_DIST_CERT_P12 }}
+          P12_PASSWORD: ${{ secrets.IOS_DIST_CERT_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KEYCHAIN="$RUNNER_TEMP/build.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -base64 24)"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+
+          printf '%s' "$P12_BASE64" | base64 --decode > "$RUNNER_TEMP/dist.p12"
+          security import "$RUNNER_TEMP/dist.p12" -k "$KEYCHAIN" -P "$P12_PASSWORD" \
+            -T /usr/bin/codesign -T /usr/bin/security
+          rm -f "$RUNNER_TEMP/dist.p12"
+
+          # codesign이 프롬프트 없이 개인키를 쓰게 한다 (없으면 아카이브가 조용히 멈춘다)
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+          # 새 키체인을 검색 목록 맨 앞에 둔다 — 기존 목록을 지우면 시스템 루트 CA가
+          # 빠져 서명 검증이 실패하므로 반드시 앞에 "추가"한다
+          security list-keychains -d user -s "$KEYCHAIN" \
+            $(security list-keychains -d user | sed 's/[",]//g')
+
+          echo "키체인의 서명 인증서:"
+          security find-identity -v -p codesigning "$KEYCHAIN"
+
       # 서명 없이 시뮬레이터용으로 한 번 컴파일한다. Archive는 클라우드 서명을
       # 먼저 하므로 Apple 계정의 인증서 한도에 걸리면 **Swift가 한 줄도 컴파일되기
       # 전에** 실패한다 — 그러면 "코드가 빌드되는가"를 CI로 확인할 방법이 없다.
