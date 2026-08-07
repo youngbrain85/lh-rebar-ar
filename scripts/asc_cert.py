@@ -83,7 +83,7 @@ def cmd_list(token: str) -> None:
         print("⚠ 배포 인증서가 한도(보통 2개)에 도달했습니다 — 새로 만들려면 먼저 폐기해야 합니다.")
 
 
-def cmd_create(token: str, out_stem: Path, p12_password: str) -> None:
+def cmd_create(token: str, out_stem: Path, p12_password: str, cert_type: str) -> None:
     out_stem.parent.mkdir(parents=True, exist_ok=True)
     key_pem = out_stem.with_suffix(".key.pem")
     csr_pem = out_stem.with_suffix(".csr.pem")
@@ -104,11 +104,11 @@ def cmd_create(token: str, out_stem: Path, p12_password: str) -> None:
     csr_content = csr_pem.read_text()
 
     # 2) ASC에 CSR을 올려 배포 인증서를 발급받는다
-    print("2/4 App Store Connect에 인증서 요청")
+    print(f"2/4 App Store Connect에 인증서 요청 (type={cert_type})")
     res = call(token, "POST", "/certificates", {
         "data": {
             "type": "certificates",
-            "attributes": {"csrContent": csr_content, "certificateType": "DISTRIBUTION"},
+            "attributes": {"csrContent": csr_content, "certificateType": cert_type},
         }
     })
     attrs = res["data"]["attributes"]
@@ -162,6 +162,12 @@ def main() -> None:
     p.add_argument("--key-path", default=os.environ.get("ASC_KEY_PATH"))
     p.add_argument("--out", default="build/dist-cert", help="create 산출물 경로 접두")
     p.add_argument("--p12-password", default=os.environ.get("P12_PASSWORD", "lhrebar-ci"))
+    # 자동 서명 + Release 조합에서 Xcode는 **아카이브를 개발 서명으로** 만들고 배포
+    # 서명은 export 단계에서 다시 입힌다. 그래서 실행마다 소모되는 것은 DEVELOPMENT
+    # 인증서다(실측: CI 실행 10회 = 개발 인증서 10개, 배포는 1개 그대로).
+    p.add_argument("--type", default="DEVELOPMENT",
+                   choices=["DEVELOPMENT", "DISTRIBUTION"],
+                   help="발급할 인증서 종류 (기본 DEVELOPMENT — CI가 실제로 소모하는 쪽)")
     args = p.parse_args()
 
     missing = [n for n, v in
@@ -180,7 +186,7 @@ def main() -> None:
     if args.command == "list":
         cmd_list(token)
     elif args.command == "create":
-        cmd_create(token, Path(args.out), args.p12_password)
+        cmd_create(token, Path(args.out), args.p12_password, args.type)
     else:
         if not args.target:
             sys.exit("revoke 하려면 certificate id를 주세요 (list로 확인)")
