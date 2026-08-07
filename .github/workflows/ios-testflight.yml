@@ -44,6 +44,10 @@ jobs:
     name: Build (${{ matrix.app }})
     runs-on: macos-15
     timeout-minutes: 45
+    env:
+      # `secrets` 컨텍스트는 step의 `if:`에서 쓸 수 없다(Unrecognized named-value).
+      # env로 한 번 옮겨야 조건에서 읽을 수 있다.
+      HAS_SIGNING_CERT: ${{ secrets.IOS_DIST_CERT_P12 != '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -117,7 +121,7 @@ jobs:
       # 인증서는 `scripts/asc_cert.py create`로 만든다(Mac 없이 Windows에서 가능).
       # 시크릿이 없으면 이 스텝은 통째로 건너뛰고 기존 클라우드 서명으로 동작한다.
       - name: Import distribution certificate
-        if: ${{ secrets.IOS_DIST_CERT_P12 != '' && (github.event.inputs.app == 'both' || github.event.inputs.app == matrix.app) }}
+        if: ${{ env.HAS_SIGNING_CERT == 'true' && (github.event.inputs.app == 'both' || github.event.inputs.app == matrix.app) }}
         env:
           P12_BASE64: ${{ secrets.IOS_DIST_CERT_P12 }}
           P12_PASSWORD: ${{ secrets.IOS_DIST_CERT_PASSWORD }}
