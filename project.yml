@@ -176,7 +176,10 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: kr.lh.rebar-lh
         TARGETED_DEVICE_FAMILY: "1,2"
-        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        # 앱이 둘로 나뉘었는데 아이콘이 같아 홈 화면에서 구분이 안 됐다.
+        # 60px에서는 글자가 안 읽히므로 바탕색으로 가른다 — 연구과제는
+        # 차콜, LH 전용은 주황. 아이콘 생성은 scripts/make_app_icons.py.
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIconLH
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         GENERATE_INFOPLIST_FILE: NO
         CODE_SIGN_STYLE: Automatic
