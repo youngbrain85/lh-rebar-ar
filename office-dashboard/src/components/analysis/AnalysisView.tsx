@@ -201,7 +201,7 @@ export default function AnalysisView({
           design: designRebars, scan: scanRebars,
           toleranceMm: tolerance, up: [0, 1, 0], manualInit,
           requiredSpacingMm: usable,
-          // 발주처 13개 현장 전부 built-in 설계모델이 없다(전부 ar_type:"visual", site 1은
+          // 발주처 9개 현장 전부 built-in 설계모델이 없다(전부 ar_type:"visual", site 1은
           // 아예 바닥판) — 그 프레임을 벽 분석에 쓰면 간격이 무의미해진다. 체크박스가 켜져
           // 있으면 설계를 아예 읽지 않고 스캔 자신의 형상에서 프레임을 뽑는다.
           frameSource: noDesignMode ? "scan" : undefined,
@@ -769,7 +769,7 @@ export default function AnalysisView({
           )}
         </Group>
 
-        {/* 발주처 13개 현장 전부 built-in 설계모델이 없다 — 있는 모델을 정합·분류 기준으로
+        {/* 발주처 9개 현장 전부 built-in 설계모델이 없다 — 있는 모델을 정합·분류 기준으로
             쓰면(site 1은 아예 바닥판) 간격이 무의미해진다. 체크하면 설계를 아예 읽지 않고
             스캔 자신의 형상에서 벽면 법선·방향군을 뽑아 간격 편차만 잰다. */}
         <Checkbox

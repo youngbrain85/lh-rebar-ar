@@ -32,7 +32,7 @@ export default function SiteAnalysis({ siteId }: { siteId: number }) {
   const [error, setError] = useState<string | null>(null);
   // 「설계모델 없이 분석」체크박스 — AnalysisView 안에 있지만, 여기서도 알아야
   // 모델 선택 화면의 ar_type 경고("비교 기준은 설계모델이어야…")를 억제할 수 있다.
-  // 그 경고는 이 화면(스캔을 아직 열지 않은 상태)에서 뜨는데, 발주처 13개 현장 전부
+  // 그 경고는 이 화면(스캔을 아직 열지 않은 상태)에서 뜨는데, 발주처 9개 현장 전부
   // built-in 모델이 없어 이 모드를 쓰기로 한 사용자에게는 매번 뜨는 게 노이즈다.
   const [noDesignMode, setNoDesignMode] = useState(false);
 

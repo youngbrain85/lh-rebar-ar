@@ -191,7 +191,13 @@ screen is the device screen, so the field app raycasts that point directly.
 1. **Do NOT add `arkit` to `UIRequiredDeviceCapabilities`** — visionOS rejects it (ITMS-90984). LiDAR is enforced at runtime instead.
 2. **Never bind the model to an ARAnchor — use `AnchorEntity(world:)`** in BOTH `place()` and `reanchor()`. ARAnchor-backed content (a) sits at the world origin until ARKit reports the anchor next frame — a synchronous read of the fine-adjust base / visual-lock datum in that window captures garbage; and (b) is only rendered while the anchor is actively *tracked*, so in low-feature / narrow spaces the model appears for a few seconds then **vanishes** as ARKit relocalizes. World anchors have neither problem; drift is handled by re-anchoring + visual lock. (Three separate field-reported bugs traced to this — teleport-on-adjust, blink-on-reanchor, vanish-in-narrow-space.)
 3. **Setting `@State` synchronously inside `makeUIView`/`onViewReady` is unreliable** — the write can be dropped. Defer with `DispatchQueue.main.async`. (This silently broke the capture button: `arViewRef` stayed nil so the guard returned with zero feedback.)
-4. **USDZ from the backend is Z-up.** RealityKit honors the `upAxis` metadata and renders it correctly — verified on device. Do not "fix" it.
+4. **백엔드 USDZ의 축은 `upAxis` 메타데이터를 신뢰하고, 앱에서 임의로 보정하지 말 것.**
+    RealityKit이 `upAxis`를 존중해 올바르게 렌더한다 — 기기에서 검증됨.
+    ※ 이 항목은 원래 "백엔드 USDZ는 Z-up"이라고 적혀 있었으나 **현재 파일과 어긋난다** —
+    2026-08-11 실측한 site 1/2/3의 `model.usda` 헤더는 `upAxis = "Y"`, `metersPerUnit = 1`이다.
+    (그 파일들은 as-built 생성기 산출물이다. 설계 변환 경로의 축은 아직 미확인이니,
+    설계 USDZ 샘플이 오면 헤더를 다시 확인할 것.) 어느 쪽이든 **메타데이터를 읽어 쓰면 되고,
+    코드에 축을 하드코딩하지 않는다**는 결론은 바뀌지 않는다.
 5. **three.js needs `USDLoader`, not `USDZLoader`** (deprecated in r179+), and BriconLab serves `.usdz` (the old `/analysis/fbx` endpoint is gone → 404).
 6. **Next dev server blocks cross-origin requests** — a tunneled/proxied host hangs on a loading spinner until the origin is added to `allowedDevOrigins` in `next.config.ts`.
 7. **ASC `filter[bundleId]` is a loose prefix match** — `kr.lh.rebar-ar` also returns the sibling app `kr.lh.rebarcapture`. `scripts/build_status.py` filters for the exact match; keep it that way.

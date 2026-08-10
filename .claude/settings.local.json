@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(git clone https://github.com/youngbrain85/lh-rebar-ar.git \"D:\\\\Projects\\\\LH\\\\AR\" 2>&1)"
+    ]
+  }
+}

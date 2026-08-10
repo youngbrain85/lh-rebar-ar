@@ -45,27 +45,41 @@ describe("parseRebarMeta", () => {
   });
 
   it("빌드 대조 필드는 선택이다", () => {
-    const r = parseRebarMeta({ ...valid, model_upload_at: "2026-08-05T10:22:31", prim_count: 60 });
+    const r = parseRebarMeta({ ...valid, model_upload_at: "2026-07-29 20:33:49", prim_count: 60 });
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.data.prim_count).toBe(60);
   });
 });
 
 describe("matchesModel", () => {
-  const meta = { ...valid, model_upload_at: "2026-08-05T10:22:31", prim_count: 60 } as RebarMetaFile;
+  // BriconLab의 upload_at 실제 형식 — varchar(32), 공백 구분 (DB 실측)
+  const meta = { ...valid, model_upload_at: "2026-07-29 20:33:49", prim_count: 60 } as RebarMetaFile;
 
   it("둘 다 맞으면 통과", () => {
-    expect(matchesModel(meta, { uploadAt: "2026-08-05T10:22:31", primCount: 60 }).ok).toBe(true);
+    expect(matchesModel(meta, { uploadAt: "2026-07-29 20:33:49", primCount: 60 }).ok).toBe(true);
+  });
+
+  it("구분자만 다른 같은 시각은 통과시킨다 (T vs 공백)", () => {
+    // 사이드카를 만드는 쪽이 ISO 관례로 T를 쓸 수 있다. 문자열 완전일치로 보면
+    // 같은 빌드인데 "다른 모델"로 판정해 정상 사이드카를 통째로 버린다.
+    expect(matchesModel(meta, { uploadAt: "2026-07-29T20:33:49" }).ok).toBe(true);
+    const isoMeta = { ...meta, model_upload_at: "2026-07-29T20:33:49" } as RebarMetaFile;
+    expect(matchesModel(isoMeta, { uploadAt: "2026-07-29 20:33:49" }).ok).toBe(true);
+  });
+
+  it("소수 초·타임존 표기가 붙어도 같은 시각이면 통과", () => {
+    expect(matchesModel(meta, { uploadAt: "2026-07-29T20:33:49.000Z" }).ok).toBe(true);
+    expect(matchesModel(meta, { uploadAt: "2026-07-29 20:33:49+09:00" }).ok).toBe(true);
   });
 
   it("upload_at 이 다르면 막는다", () => {
-    const r = matchesModel(meta, { uploadAt: "2026-08-06T09:00:00", primCount: 60 });
+    const r = matchesModel(meta, { uploadAt: "2026-07-30 09:00:00", primCount: 60 });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reason).toContain("다른 모델 빌드");
   });
 
   it("prim 개수가 다르면 막는다", () => {
-    const r = matchesModel(meta, { uploadAt: "2026-08-05T10:22:31", primCount: 248 });
+    const r = matchesModel(meta, { uploadAt: "2026-07-29 20:33:49", primCount: 248 });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reason).toContain("철근 개수");
   });
