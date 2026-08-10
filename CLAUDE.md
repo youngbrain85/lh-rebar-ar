@@ -360,6 +360,44 @@ direction-family/contour branch that surfaced this.
 
 ---
 
+## 8.5 BriconLab DB 직접 접근 (2026-08-08~)
+
+사용자가 BriconLab MariaDB 계정을 줬다. 자격증명은 `secrets/briconlab-db.env`(gitignore).
+
+**API와 DB는 다른 machine이다 — DB 권한으로 API를 고칠 수 없다.**
+
+| | 주소 | 우리 권한 |
+|---|---|---|
+| API (FastAPI) | `api.briconlab.com:50001` → `3.36.175.10` (AWS) | 없음. 호출만 가능 |
+| DB (MariaDB 10.11) | `briconlab.synology.me:58807` → `211.228.233.123` (시놀로지 NAS) | LH 스키마 DML/DDL |
+
+그래서 다음은 **DB로 우회할 수 없다** — 전부 API 코드 문제다:
+- site 4~9 의 `ar-list` 500 (0행을 빈 목록이 아니라 예외로 처리)
+- `ar_type` 에 `built-in` 을 넣을 수단 없음 (업로드 API에 필드 자체가 없다)
+- 계층 사이드카 엔드포인트 (테이블을 만들어도 그들 API가 모른다)
+
+**쓰기 규칙**
+1. **쓰기 전 반드시 스냅샷**: `python scripts/db_snapshot.py dump`
+2. 변경 후 확인: `... diff backups/<파일>.json`
+3. 되돌리기: `... restore backups/<파일>.json --tables <표> --confirm`
+4. 조회는 `scripts/db.py` — 기본 읽기 전용이고 쓰기 문은 `--write` 를 명시해야 나간다.
+
+7테이블 전부 **InnoDB**라 트랜잭션·롤백이 실제로 동작한다(확인함). `restore` 는
+DELETE+재삽입을 한 트랜잭션에 묶고 실패 시 통째로 롤백한다. 스키마(DDL)는
+건드리지 않는다. 스냅샷 파일은 상대사 운영 데이터이므로 `backups/` 는 gitignore.
+
+**검증 이력 (2026-08-11)**: 스냅샷 206행/7테이블 → `diff` 차이 없음(무손실 확인)
+→ `pts_metadata`(0행)·`ar_result`(3행) 순변화 0 복원 → `diff` 여전히 차이 없음.
+INSERT·DELETE·커밋 경로가 실데이터에서 동작함을 확인했다.
+
+**하지 말 것**: 계층 정보를 우리가 신규 테이블로 넣는 것. 기존 테이블에 자리가
+없고(최장 `varchar(64)`, 조인키 `element_id` 는 `varchar(16)` 인데 prim 경로만
+19자), 신규 테이블은 상대 파이프라인이 모르므로 모델 재출력 시 자동 갱신되지
+않는다 — 요청서가 `model_upload_at`/`prim_count` 로 막으려던 "사이드카가 낡는"
+문제를 우리가 떠안게 된다.
+
+---
+
 ## 9. External accounts / IDs
 
 | Thing | Value |
