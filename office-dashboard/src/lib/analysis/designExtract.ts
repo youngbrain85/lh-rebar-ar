@@ -35,7 +35,7 @@ export function rebarsFromGroups(groups: { name: string; vertices: Vec3[] }[]): 
 export interface MeshData {
   name: string;
   /**
-   * USDZ prim 절대 경로 (예: `/RebarModel/Stem_Front_Vert_01`). **필수**.
+   * USDZ prim 절대 경로 (예: `/RebarModel/Wall_Front_Vert_01`). **필수**.
    *
    * 이름이 아니라 경로로 그룹핑하는 이유: `loadDesign`이 읽는 것은 오브젝트(부재)
    * 이름이 아니라 **메시 데이터블록 이름**이고, Blender USD 익스포터는 오브젝트

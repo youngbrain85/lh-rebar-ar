@@ -179,10 +179,10 @@ git commit -m "fix: 철근 id 를 prim 경로 기반으로 — 메시 데이터 
 핵심 케이스:
 ```ts
 it("절대/상대/wrapper 3형태가 같은 키로 정규화된다", () => {
-  const want = "/RebarModel/Stem_Front_Vert_01";
-  expect(normalizePrimPath("/RebarModel/Stem_Front_Vert_01")).toBe(want);
-  expect(normalizePrimPath("RebarModel//Stem_Front_Vert_01")).toBe(want);
-  expect(normalizePrimPath("/modelEntity/RebarModel/Meshes/Stem_Front_Vert_01")).toBe(want);
+  const want = "/RebarModel/Wall_Front_Vert_01";
+  expect(normalizePrimPath("/RebarModel/Wall_Front_Vert_01")).toBe(want);
+  expect(normalizePrimPath("RebarModel//Wall_Front_Vert_01")).toBe(want);
+  expect(normalizePrimPath("/modelEntity/RebarModel/Meshes/Wall_Front_Vert_01")).toBe(want);
 });
 
 it("깊이가 부위마다 달라도 트리가 만들어진다", () => { /* 전벽 3단 + 헌치 1단 */ });

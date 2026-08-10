@@ -122,13 +122,64 @@ export function taxonomyFromSidecar(meta: SidecarLike, ids: string[]): Taxonomy 
 
 // -------------------------------------------------------------- 2. primName
 
-/** §8.1 코드북. 신규 규약 토큰 + 약어 확장 */
-const CODEBOOK: Record<string, string> = {
-  Stem: "전벽철근", Base: "저판철근", Haunch: "헌치철근",
-  Front: "전면", Rear: "배면",
-  Top: "상부", Bot: "하부",
+/**
+ * 옹벽 철근 분류표 — **발주처 제공 (2026-08-08)**. 원본: `docs/wall-rebar-classification.png`
+ *
+ * 이 표가 어휘의 단일 진실이다. 임의로 고치지 말 것 — 화면에 뜨는 이름이 곧 이 값이고,
+ * BriconLab에 보낸 명명 규약(`api/REBAR_TAXONOMY_REQUEST.md`)도 이 표를 그대로 옮긴 것이다.
+ *
+ * 주의할 성질 둘:
+ *  - **괄호 안 역할명이 면마다 다르다.** 벽체 전면의 수직철근에는 괄호가 없지만 배면은
+ *    `수직철근(주철근)`이다. 저판 하부 횡방향에도 괄호가 없다. 그래서 토큰별 사전으로는
+ *    정확히 재현할 수 없고, (부재·면·기능) 조합을 통째로 갖고 있어야 한다.
+ *  - **헌치는 독립 부재가 아니다.** 표에서는 `벽체-저판` 경계의 보강철근이다.
+ *
+ * `optional: true`는 표의 "분석 가능할 경우 추가" — 없어도 정상이다.
+ */
+export interface WallTaxonomyRow {
+  /** ASCII prim 이름 토큰 (번호 제외). USD 식별자 규칙을 만족한다 */
+  token: string;
+  member: string;
+  /** 면. 벽체-저판 경계처럼 면이 없는 행은 null */
+  face: string | null;
+  fn: string;
+  optional: boolean;
+}
+
+export const WALL_TAXONOMY: readonly WallTaxonomyRow[] = [
+  { token: "Wall_Front_Vert",       member: "벽체", face: "전면",      fn: "수직철근",           optional: false },
+  { token: "Wall_Front_Horiz",      member: "벽체", face: "전면",      fn: "수평철근(배력철근)", optional: false },
+  { token: "Wall_Rear_Vert",        member: "벽체", face: "배면",      fn: "수직철근(주철근)",   optional: false },
+  { token: "Wall_Rear_Horiz",       member: "벽체", face: "배면",      fn: "수평철근(배력철근)", optional: false },
+  { token: "Wall_FrontRear_Shear",  member: "벽체", face: "전면-배면", fn: "간격재(전단철근)",   optional: true },
+  { token: "Wall_Top_Reinf",        member: "벽체", face: "상단",      fn: "보강철근",           optional: true },
+  { token: "Base_Upper_Trans",      member: "저판", face: "상부",      fn: "횡방향철근(주철근)", optional: false },
+  { token: "Base_Upper_Long",       member: "저판", face: "상부",      fn: "종방향철근(배력철근)", optional: false },
+  { token: "Base_Lower_Trans",      member: "저판", face: "하부",      fn: "횡방향철근",         optional: false },
+  { token: "Base_Lower_Long",       member: "저판", face: "하부",      fn: "종방향철근(배력철근)", optional: false },
+  { token: "Base_UpperLower_Shear", member: "저판", face: "상부-하부", fn: "간격재(전단철근)",   optional: true },
+  { token: "WallBase_Haunch",       member: "벽체-저판", face: null,   fn: "보강철근(헌치철근)", optional: true },
+] as const;
+
+/** 표의 한 행 → 트리 경로. 면이 없는 행은 2단계다 */
+export function rowPath(r: WallTaxonomyRow): string[] {
+  return r.face == null ? [r.member, r.fn] : [r.member, r.face, r.fn];
+}
+
+/** 토큰 문자열(번호 제외) → 분류표 행 */
+const BY_TOKEN = new Map(WALL_TAXONOMY.map((r) => [r.token, r]));
+
+/**
+ * 표에 없는 이름을 만났을 때의 느슨한 폴백 — 토큰 하나씩 옮긴다.
+ * 괄호 안 역할명은 복원하지 못하므로 표 조회가 우선이다.
+ */
+const LOOSE_TOKENS: Record<string, string> = {
+  Wall: "벽체", Base: "저판", WallBase: "벽체-저판",
+  Front: "전면", Rear: "배면", FrontRear: "전면-배면", Top: "상단",
+  Upper: "상부", Lower: "하부", UpperLower: "상부-하부",
   Vert: "수직철근", Horiz: "수평철근",
-  Trans: "횡방향", Long: "종방향",
+  Trans: "횡방향철근", Long: "종방향철근",
+  Shear: "간격재", Reinf: "보강철근", Haunch: "헌치철근",
   V: "수직철근", H: "수평철근",
 };
 
@@ -156,6 +207,12 @@ function parsePrimName(leaf: string): { path: string[]; no: number | null } | nu
   }
   if (tokens.length === 0) return null;
 
+  // ★ 분류표 조회가 우선이다. 괄호 안 역할명(주철근/배력철근)이 면마다 달라
+  //   토큰별 사전으로는 `수직철근(주철근)` 같은 정식 명칭을 복원할 수 없다.
+  const row = BY_TOKEN.get(tokens.join("_"));
+  if (row) return { path: rowPath(row), no };
+
+  // 표에 없는 이름 — 레거시 어댑터와 느슨한 토큰 매핑으로 최선을 다한다
   const path: string[] = [];
   for (const t of tokens) {
     const legacy = LEGACY_TOPBOT.exec(t);
@@ -163,7 +220,7 @@ function parsePrimName(leaf: string): { path: string[]; no: number | null } | nu
       path.push(LEGACY_WORDS[legacy[1]], LEGACY_WORDS[legacy[2]]);
       continue;
     }
-    const mapped = CODEBOOK[t];
+    const mapped = LOOSE_TOKENS[t];
     if (!mapped) return null;
     path.push(mapped);
   }

@@ -42,13 +42,52 @@ enum RebarTaxonomy {
 
     // MARK: - 코드북 (사이드카가 없을 때)
 
-    /// 신규 규약 토큰 + 약어 확장.
-    static let codebook: [String: String] = [
-        "Stem": "전벽철근", "Base": "저판철근", "Haunch": "헌치철근",
-        "Front": "전면", "Rear": "배면",
-        "Top": "상부", "Bot": "하부",
+    /// 옹벽 철근 분류표 — **발주처 제공 (2026-08-08)**.
+    /// 원본 `docs/wall-rebar-classification.png`, TS 원본 `taxonomy.ts`의 WALL_TAXONOMY.
+    ///
+    /// ★ 괄호 안 역할명이 면마다 다르다(벽체 전면 `수직철근` vs 배면 `수직철근(주철근)`).
+    ///   그래서 토큰별 사전으로는 정식 명칭을 복원할 수 없고 조합을 통째로 갖고 있어야 한다.
+    /// ★ 헌치는 독립 부재가 아니라 `벽체-저판` 경계의 보강철근이며 면이 없어 2단계다.
+    struct WallRow {
+        let token: String
+        let member: String
+        let face: String?
+        let fn: String
+        let optional: Bool
+
+        /// 트리 경로. 면이 없는 행은 2단계다.
+        var path: [String] { face == nil ? [member, fn] : [member, face!, fn] }
+    }
+
+    static let wallTaxonomy: [WallRow] = [
+        .init(token: "Wall_Front_Vert",       member: "벽체", face: "전면",      fn: "수직철근",             optional: false),
+        .init(token: "Wall_Front_Horiz",      member: "벽체", face: "전면",      fn: "수평철근(배력철근)",   optional: false),
+        .init(token: "Wall_Rear_Vert",        member: "벽체", face: "배면",      fn: "수직철근(주철근)",     optional: false),
+        .init(token: "Wall_Rear_Horiz",       member: "벽체", face: "배면",      fn: "수평철근(배력철근)",   optional: false),
+        .init(token: "Wall_FrontRear_Shear",  member: "벽체", face: "전면-배면", fn: "간격재(전단철근)",     optional: true),
+        .init(token: "Wall_Top_Reinf",        member: "벽체", face: "상단",      fn: "보강철근",             optional: true),
+        .init(token: "Base_Upper_Trans",      member: "저판", face: "상부",      fn: "횡방향철근(주철근)",   optional: false),
+        .init(token: "Base_Upper_Long",       member: "저판", face: "상부",      fn: "종방향철근(배력철근)", optional: false),
+        .init(token: "Base_Lower_Trans",      member: "저판", face: "하부",      fn: "횡방향철근",           optional: false),
+        .init(token: "Base_Lower_Long",       member: "저판", face: "하부",      fn: "종방향철근(배력철근)", optional: false),
+        .init(token: "Base_UpperLower_Shear", member: "저판", face: "상부-하부", fn: "간격재(전단철근)",     optional: true),
+        .init(token: "WallBase_Haunch",       member: "벽체-저판", face: nil,    fn: "보강철근(헌치철근)",   optional: true),
+    ]
+
+    static let rowByToken: [String: WallRow] = {
+        var m: [String: WallRow] = [:]
+        for r in wallTaxonomy { m[r.token] = r }
+        return m
+    }()
+
+    /// 표에 없는 이름을 만났을 때의 느슨한 폴백 — 괄호 안 역할명은 복원하지 못한다.
+    static let looseTokens: [String: String] = [
+        "Wall": "벽체", "Base": "저판", "WallBase": "벽체-저판",
+        "Front": "전면", "Rear": "배면", "FrontRear": "전면-배면", "Top": "상단",
+        "Upper": "상부", "Lower": "하부", "UpperLower": "상부-하부",
         "Vert": "수직철근", "Horiz": "수평철근",
-        "Trans": "횡방향", "Long": "종방향",
+        "Trans": "횡방향철근", "Long": "종방향철근",
+        "Shear": "간격재", "Reinf": "보강철근", "Haunch": "헌치철근",
         "V": "수직철근", "H": "수평철근",
     ]
 
@@ -81,6 +120,11 @@ enum RebarTaxonomy {
         }
         guard !tokens.isEmpty else { return nil }
 
+        // ★ 분류표 조회가 우선. 괄호 안 역할명은 조합을 봐야 나온다.
+        if let row = rowByToken[tokens.joined(separator: "_")] {
+            return Parsed(path: row.path, no: no)
+        }
+
         var path: [String] = []
         for t in tokens {
             if t.count == 4,
@@ -92,7 +136,7 @@ enum RebarTaxonomy {
                 path.append(tail)
                 continue
             }
-            guard let mapped = codebook[t] else { return nil }
+            guard let mapped = looseTokens[t] else { return nil }
             path.append(mapped)
         }
         return Parsed(path: path, no: no)

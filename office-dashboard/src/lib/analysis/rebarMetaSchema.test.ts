@@ -6,8 +6,8 @@ const valid = {
   ar_id: "abc",
   structure: "옹벽",
   rebars: [
-    { prim: "/RebarModel/Stem_Front_Vert_01", label: "전벽-전면-수직철근-01",
-      path: ["전벽철근", "전면", "수직철근"], no: 1 },
+    { prim: "/RebarModel/Wall_Front_Vert_01", label: "벽체-전면-수직철근-01",
+      path: ["벽체", "전면", "수직철근"], no: 1 },
   ],
 };
 
@@ -15,13 +15,13 @@ describe("parseRebarMeta", () => {
   it("유효한 사이드카를 통과시킨다", () => {
     const r = parseRebarMeta(valid);
     expect(r.ok).toBe(true);
-    if (r.ok) expect(r.data.rebars[0].path).toEqual(["전벽철근", "전면", "수직철근"]);
+    if (r.ok) expect(r.data.rebars[0].path).toEqual(["벽체", "전면", "수직철근"]);
   });
 
   it("label 없이도 통과한다 — 라벨은 §4.2 규칙으로 조립된다", () => {
     const r = parseRebarMeta({
       ...valid,
-      rebars: [{ prim: "/R/Haunch_01", path: ["헌치철근"], no: 1 }],
+      rebars: [{ prim: "/R/WallBase_Haunch_01", path: ["벽체-저판", "보강철근(헌치철근)"], no: 1 }],
     });
     expect(r.ok).toBe(true);
   });
