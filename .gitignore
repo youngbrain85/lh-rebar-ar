@@ -22,6 +22,10 @@ LHRebarAR.xcodeproj/
 # or the first `xcodegen generate` + `git add -A` on a fresh clone commits a
 # second stale generated artifact.
 LHRebarAR/Info-LH.plist
+# Info-Tests.plist는 LHRebarARTests 타겟의 `info:` 출력이다 — 위와 같은 이유로
+# 추적하지 않는다. xcodegen이 테스트 번들용 기본값(CFBundlePackageType BNDL 등)을
+# 채워 매번 생성한다.
+LHRebarAR/Info-Tests.plist
 build/
 DerivedData/
 *.xcuserstate
