@@ -215,11 +215,42 @@ xcodebuild test -project LHRebarAR.xcodeproj -scheme LHRebarARLH \
 
 Expected: 4 테스트 PASS. **하나라도 실패하면 멈추고 보고한다** — 스펙의 측정이 틀렸다는 뜻이다.
 
-- [ ] **Step 6: 커밋**
+- [ ] **Step 6: CI에 테스트 단계 추가**
+
+**이 단계가 Task 1에 있는 이유:** 개발 머신이 Windows라 `xcodebuild`를 못 돌린다. CI가 유일한 검증 수단이므로 **첫 태스크에서** 물려 놓아야 이후 태스크가 빨강/초록을 실제로 확인할 수 있다.
+
+`.github/workflows/ios-testflight.yml`의 `- name: Compile check (no signing)` **바로 앞**에 넣는다. 들여쓰기는 기존 스텝과 동일(6칸):
+
+```yaml
+      # 순수 로직이 깨졌으면 5분짜리 컴파일·아카이브 전에 알아야 한다.
+      # 테스트 번들은 호스트가 없어 앱을 빌드하지 않는다(Foundation 3파일).
+      - name: Unit tests
+        if: ${{ github.event.inputs.app == 'both' || github.event.inputs.app == matrix.app }}
+        run: |
+          set -euo pipefail
+          # 러너 이미지마다 있는 기기가 달라 이름을 하드코딩하지 않는다.
+          UDID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys
+          d = json.load(sys.stdin)["devices"]
+          print(next(x["udid"] for v in d.values() for x in v if x["name"].startswith("iPhone")))')
+          echo "시뮬레이터: $UDID"
+          xcodebuild test \
+            -project LHRebarAR.xcodeproj -scheme ${{ matrix.scheme }} \
+            -destination "id=$UDID" \
+            -only-testing:LHRebarARTests
+```
+
+`xcpretty`로 파이프하지 않는다 — 파이프가 종료코드를 삼켜 실패가 초록으로 지나간다.
+
+YAML 문법 확인:
+
+Run: `python -c "import yaml; yaml.safe_load(open('.github/workflows/ios-testflight.yml', encoding='utf-8')); print('YAML OK')"`
+Expected: `YAML OK`
+
+- [ ] **Step 7: 커밋**
 
 ```bash
-git add project.yml LHRebarARTests
-git commit -m "test: Swift 테스트 타겟 신설 + 실측 설계모델 45 prim 픽스처"
+git add project.yml LHRebarARTests .github/workflows/ios-testflight.yml
+git commit -m "test: Swift 테스트 타겟 신설 + 실측 45 prim 픽스처 + CI 테스트 단계"
 ```
 
 ---
@@ -1488,38 +1519,15 @@ git commit -m "test: 분류표에 kind/role 동기화 + 실측 45 prim 픽스처
 
 ---
 
-## Task 8: CI 테스트 단계 + 문서
+## Task 8: 문서
+
+CI 테스트 단계는 Task 1 Step 6에서 이미 넣었다 — 이 태스크는 문서만 다룬다.
 
 **Files:**
-- Modify: `.github/workflows/ios-testflight.yml` (`Compile check (no signing)` 앞)
 - Modify: `docs/ar-app-split-device-check.md`
 - Modify: `CLAUDE.md`
 
-- [ ] **Step 1: CI 단계 추가**
-
-`.github/workflows/ios-testflight.yml`의 `- name: Compile check (no signing)` **바로 앞**에 넣는다. 들여쓰기는 기존 스텝과 동일(6칸):
-
-```yaml
-      # 순수 로직이 깨졌으면 5분짜리 컴파일·아카이브 전에 알아야 한다.
-      # 테스트 번들은 호스트가 없어 앱을 빌드하지 않는다(Foundation 3파일).
-      - name: Unit tests
-        if: ${{ github.event.inputs.app == 'both' || github.event.inputs.app == matrix.app }}
-        run: |
-          set -euo pipefail
-          # 러너 이미지마다 있는 기기가 달라 이름을 하드코딩하지 않는다.
-          UDID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys
-          d = json.load(sys.stdin)["devices"]
-          print(next(x["udid"] for v in d.values() for x in v if x["name"].startswith("iPhone")))')
-          echo "시뮬레이터: $UDID"
-          xcodebuild test \
-            -project LHRebarAR.xcodeproj -scheme ${{ matrix.scheme }} \
-            -destination "id=$UDID" \
-            -only-testing:LHRebarARTests
-```
-
-`xcpretty`로 파이프하지 않는다 — 파이프가 종료코드를 삼켜 실패가 초록으로 지나간다.
-
-- [ ] **Step 2: 기기 검증 항목 추가**
+- [ ] **Step 1: 기기 검증 항목 추가**
 
 `docs/ar-app-split-device-check.md` 끝에 붙인다:
 
@@ -1539,7 +1547,7 @@ git commit -m "test: 분류표에 kind/role 동기화 + 실측 45 prim 픽스처
 | D7 | 앱을 껐다 켜도 트리의 면 순서가 전면 → 배면 → 전면-배면 로 같은가 | `order` 정렬이 안 먹은 것 |
 ```
 
-- [ ] **Step 3: `CLAUDE.md` 갱신**
+- [ ] **Step 2: `CLAUDE.md` 갱신**
 
 세 곳을 고친다.
 
@@ -1590,21 +1598,16 @@ git commit -m "test: 분류표에 kind/role 동기화 + 실측 45 prim 픽스처
   같은 두 파일이 설계모델을 `ar_type === "built-in"` 으로 찾는데 실제 값은 `"design"` 이다.
 ```
 
-- [ ] **Step 4: 문서 검증**
+- [ ] **Step 3: 문서 검증**
 
 Run: `git diff --stat`
-Expected: 워크플로 1건 + 문서 2건
+Expected: 문서 2건만 (워크플로는 Task 1 에서 이미 커밋됐다)
 
-CI YAML 문법 확인:
-
-Run: `python -c "import yaml,sys; yaml.safe_load(open('.github/workflows/ios-testflight.yml', encoding='utf-8')); print('YAML OK')"`
-Expected: `YAML OK`
-
-- [ ] **Step 5: 커밋 + 푸시 + PR**
+- [ ] **Step 4: 커밋 + 푸시 + PR**
 
 ```bash
-git add .github/workflows/ios-testflight.yml docs/ar-app-split-device-check.md CLAUDE.md
-git commit -m "ci: 아카이브 전에 Swift 단위 테스트 + 기기 검증 항목·고차 갱신"
+git add docs/ar-app-split-device-check.md CLAUDE.md
+git commit -m "docs: 기기 검증 항목 + 고차 3건(잎만 체크·0을 조인실패로 읽지 말 것·API 불신)"
 git push -u origin feat/rebar-kind-filter
 gh pr create --title "철근 종류축 필터 — 실측 설계모델 대응" --body "$(cat <<'EOF'
 ## 무엇을
@@ -1670,7 +1673,7 @@ EOF
 | §6.6 UI | T6 |
 | §7.1 테스트 타겟 | T1 Step 1 |
 | §7.2 케이스 13종 | T1·T2·T3·T4·T5 (총 23개로 분해) |
-| §7.3 CI | T8 Step 1 |
+| §7.3 CI | T1 Step 6 |
 | §7.4 대시보드 회귀 | T7 |
 | §8.2 기기 검증 | T8 Step 2 |
 | §9 범위 밖 기록 | T8 Step 3 |
