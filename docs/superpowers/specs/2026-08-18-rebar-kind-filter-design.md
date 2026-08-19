@@ -429,7 +429,9 @@ Swift 테스트 타겟이 **하나도 없다.** 이번에 발견한 결함 3건(
       - path: LHRebarARTests
 ```
 
-두 소스 파일 모두 `import Foundation`뿐이라 이 구성이 성립한다(확인함). `LHRebarARLH` 타겟에 `scheme.testTargets: [LHRebarARTests]`를 달아 스킴에서 돌게 한다.
+두 소스 파일 모두 `import Foundation`뿐이라 이 구성이 성립한다(확인함).
+
+**`LHRebarAR`·`LHRebarARLH` 두 타겟 모두에** `scheme.testTargets: [LHRebarARTests]`를 단다. CI가 `app=research`로 돌 때도 테스트가 돌아야 하기 때문이다. 테스트 번들이 호스트 없는 2파일짜리라 어느 스킴에서든 앱을 빌드하지 않고 끝난다.
 
 ### 7.2 케이스
 
@@ -468,12 +470,14 @@ d=json.load(sys.stdin)["devices"]
 print(next(x["udid"] for v in d.values() for x in v if x["name"].startswith("iPhone")))')
     echo "시뮬레이터: $UDID"
     xcodebuild test -project LHRebarAR.xcodeproj \
-      -scheme LHRebarARLH \
+      -scheme ${{ matrix.scheme }} \
       -destination "id=$UDID" \
       -only-testing:LHRebarARTests
 ```
 
-매트릭스 두 잡 모두에서 돌지만 같은 소스라 무해하다. `xcpretty`는 쓰지 않는다 — 파이프가 종료코드를 삼켜 실패가 초록으로 지나가는 사고가 잦다.
+기존 모든 스텝과 같은 `if:` 매트릭스 가드를 단다. `Compile check (no signing)` **앞**에 넣는다 — 순수 로직이 깨졌으면 5분짜리 컴파일·아카이브를 돌리기 전에 알아야 한다. 매트릭스 두 잡 모두에서 돌지만 같은 소스라 무해하다.
+
+`xcpretty`는 쓰지 않는다 — 파이프가 종료코드를 삼켜 실패가 초록으로 지나가는 사고가 잦다.
 
 ### 7.4 대시보드 회귀 테스트
 
