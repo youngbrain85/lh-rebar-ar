@@ -4,11 +4,16 @@ Auto-loaded by Claude Code in this directory. It carries decisions, hard-won
 gotchas, and the current plan across machines/sessions so a fresh session can
 continue without re-deriving anything.
 
-**Last updated**: 2026-08-05 · branch `feat/ar-app-split` (PR #14, open, not merged) splitting
-the app into 철근 AR 연구 (`kr.lh.rebar-ar`) + LH 철근검측 (`kr.lh.rebar-lh`) — see §1 · research
-app build 33 already on ASC (`next_build.py` returns 34; processing state not re-checked here) ·
-LH app not yet uploaded, ASC record not yet registered (§9) · CI green for both apps' compile at
-HEAD, nothing run on a device yet · dashboard live on Vercel.
+**Last updated**: 2026-08-18 · branch `feat/rebar-kind-filter` (Tasks 1–8 of the 철근 종류축
+필터 plan complete, pushed to origin, no PR yet — controller decides) — adds a 부위순/종류순
+axis toggle to `AppFeatures.rebarFilter`'s tree, keyed off the 발주처 분류표's `kind`/`role`
+columns; see §1 · **dashboard: 209/209 vitest pass, `tsc --noEmit` clean — the only verification
+actually run for this branch** · **Swift test target is brand new (24 cases across 5 files in
+`LHRebarARTests/`) and has never executed, and the Swift code has never compiled** — dev machine
+is Windows (no `xcodebuild`), and CI (`ios-testflight.yml`) triggers only on `workflow_dispatch`,
+so nothing ran it automatically; first run needs
+`gh workflow run ios-testflight.yml --ref feat/rebar-kind-filter -f app=both -f upload=false` ·
+device verification (D1–D7) not done — see `docs/ar-app-split-device-check.md`.
 
 ---
 
@@ -28,11 +33,14 @@ screens each shows — see `AppFeatures.swift` and gotcha #13 in §5. The client
 feature table put 길이 측정 (length measurement) under LH-only, but it's an
 existing, field-verified feature — the team decided (2026-08-05) to keep it in
 the research app too rather than take that as a net loss. The two apps' only
-remaining functional difference is 실시간 협업 (live collaboration) and
-**철근 계층(부위/면/방향)별 필터** (`AppFeatures.rebarFilter`, LH app only —
-built 2026-08-05, not yet device-verified). Note the axis: the client's feature
-table said "철근 종류별 필터링" (main bar / stirrup / tie); what exists is the
-**부위 계층** (전벽/저판/헌치 × 면 × 방향). The 종류 axis is still unbuilt.
+remaining functional difference is 실시간 협업 (live collaboration) and the
+철근 계층 필터 (`AppFeatures.rebarFilter`, LH app only).
+
+**철근 계층 필터** (`AppFeatures.rebarFilter`, LH 앱 전용)는 **부위순 / 종류순 두 축**을
+전환 토글로 제공한다. 부위순은 발주처 분류표 그대로(부재 > 면 > 기능), 종류순은
+분류표의 `kind` 컬럼 기준(종류 > 위치)이라 발주처 기능표의 "철근 종류별 필터링"
+요구에 대응한다. 2026-08-18 실측 설계모델에서 45가닥이 100% 분류된다.
+기기 검증은 `docs/ar-app-split-device-check.md` 참조 — **아직 안 했다.**
 
 Data comes from the **BriconLab backend** (`http://api.briconlab.com:50001`).
 Live video/audio/data runs over **LiveKit Cloud** (`wss://ar-w5h0quhi.livekit.cloud`).
@@ -232,6 +240,26 @@ screen is the device screen, so the field app raycasts that point directly.
     - `Jisoo Park` 이름의 인증서는 사람 것이다. **폐기하지 말 것.**
     - `.p12`가 만료(1년)되면 같은 방법으로 다시 만들어 시크릿만 교체한다.
 
+15. **철근 트리의 체크 상태는 잎만 담는다.** 조상 노드 value 를 체크 집합에 넣으면
+    안 된다 — `buildTree` 가 조상마다 자손 경로를 중복 보유하므로(`child.add(paths:)`),
+    조상이 체크돼 있으면 자손을 꺼도 `visiblePaths` 합집합에서 되살아난다. 2026-08-18
+    까지 필터가 **아무것도 숨기지 못한** 원인이 이것이다. 조상 체크박스는 상태를
+    저장하지 말고 `RebarTaxonomy.checkState` 로 파생할 것. 대시보드가 같은 union
+    규칙인데도 멀쩡한 이유는 Mantine `useTree` 가 잎만 저장하기 때문이다.
+
+16. **"보이는 개수 0"을 조인 실패로 읽지 말 것.** 사용자가 전부 숨긴 것과 이름이
+    안 맞아 조인이 실패한 것은 다른 사건이다. 예전 `applyRebarFilter` 는 둘을 같은
+    신호(`matched == 0`)로 읽어 「전체 해제」를 즉시 원복시켰다. 조인 성패는 트리를
+    만들 때 `rebarNodeCount` 로 한 번만 판정한다.
+
+17. **BriconLab API 응답의 키·타입을 신뢰하지 말 것.** 2026-08-18 에 `ar-list` 가
+    `ar_id`/`scan_id` 를 문자열에서 정수로, `upload_at` 을 `uploaded_at` 으로 바꿨고
+    **타임스탬프와 remark 가 서로 다른 키에 들어왔다**(`source_filename` 에 시각,
+    `uploaded_at` 에 remark). 옵션 없는 `JSONDecoder` 라 앱 모델 목록이 통째로 0건이
+    됐다. `ARModel` 은 이제 id 를 String/Int 양쪽으로 받고 타임스탬프를 **키가 아니라
+    형식(`YYYY-MM-DD`)으로** 고른다. 새 필드를 추가할 때도 부가 정보는 옵셔널로 둘 것 —
+    키 하나 없어졌다고 목록이 죽으면 안 된다.
+
 ---
 
 ## 6. Workflows
@@ -322,6 +350,17 @@ The app normally fetches tokens from the dashboard at runtime; the embedded
 ---
 
 ## 8. Open items / next steps
+
+**바로 고쳐야 하는 것 (범위 밖으로 남겨둔 것):**
+- **대시보드가 프로덕션에서 죽어 있다** — `SiteAnalysis.tsx:63`·`SiteModels.tsx:101`
+  이 `m.upload_at.slice(0,10)` 을 무가드로 읽는데 API 가 그 키를 없앴다.
+  현장 카드를 누르면 `TypeError: Cannot read properties of undefined (reading 'slice')`
+  로 화면 전체가 날아간다(2026-08-18 브라우저 확인). error boundary 도 없다.
+  같은 두 파일이 설계모델을 `ar_type === "built-in"` 으로 찾는데 실제 값은 `"design"` 이다.
+- **「분류 없음」 라벨이 두 구현에서 갈렸다.** iOS `RebarTaxonomy.swift`는 `"분류 없음"`
+  (개수는 `TreeNode.count`가 따로 표시), 대시보드 `taxonomy.ts:387`은 `"분류 없음 (N)"`이고
+  `taxonomy.test.ts`가 그 값을 단언한다. 고차 #13과 분류표 단일 진실 원칙상 두 구현이
+  갈리면 안 되므로, 대시보드 작업 때 라벨과 테스트를 함께 맞춰야 한다.
 
 **Blocked on BriconLab:**
 - `POST /analysis/measurement-upload` — spec written in `api/MEASUREMENT_UPLOAD_REQUEST.md` (multipart: image + site_id + ar_id + inspector + remark + captured_at + `measurements[]` with name/points/distance/h/v/source). Once it exists, wire the capture flow to upload instead of only saving to Photos.
