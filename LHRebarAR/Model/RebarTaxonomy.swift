@@ -313,6 +313,7 @@ enum RebarTaxonomy {
         let root = TreeNode(value: "", label: t.root)
         var seen = Set<String>()
 
+        // 노드 객체는 값 타입이라 참조 비교가 안 된다 — prim 키로 중복을 거른다
         // ★ Dictionary 순회 순서는 명세돼 있지 않다 — 정렬하지 않으면 앱을 다시 켤
         //   때마다 트리의 면·기능 순서가 바뀐다. (order, no, 잎경로) 로 못박는다.
         let ordered = t.byPath.values.sorted { a, b in
@@ -339,7 +340,10 @@ enum RebarTaxonomy {
                 guard let kind = n.kind, let position = n.position else { return nil }
                 let roles = rolesByKind[kind] ?? []
                 // 역할이 하나뿐이면 종류 노드에, 갈리면 자식에 붙인다
-                let single = roles.count == 1 ? roles.first ?? nil : nil
+                // ★ roles 는 Set<String?> — .first 가 String?? 이 되므로 명시적으로 편다.
+                //   타입 추론에 맡기면 잘못된 `??` 오버로드가 골라져도 컴파일은 되고
+                //   라벨만 "Optional(...)" 로 조용히 깨질 수 있다.
+                let single: String? = roles.count == 1 ? roles.first ?? nil : nil
                 let kindLabel = single.map { "\(kind)(\($0))" } ?? kind
                 let posLabel = (roles.count > 1 && n.role != nil)
                     ? "\(position)(\(n.role!))" : position
@@ -375,7 +379,31 @@ enum RebarTaxonomy {
         let unclassified = t.unmatched + orphans
         if !unclassified.isEmpty {
             let node = TreeNode(value: unclassifiedValue, label: "분류 없음")
-            node.add(paths: unclassified)
+            // ★ 잎이 아니라 가지로 만든다. leafValues/visiblePaths 는 children.isEmpty 인
+            //   노드만 잎으로 센다 — 여기를 통짜 잎 하나로 두면 부위축에서 개별 잎이던
+            //   철근들이 종류축에서 잎 하나로 뭉쳐, 두 축의 leafValues 집합이 달라지고
+            //   부위축에서 켠 체크가 종류축으로 안 건너간다(2026-08-18 리뷰 회귀).
+            //   같은 prim 이 연결요소 여럿으로 쪼개진 경우까지 맞추려고 정규화 키로 묶는다
+            //   — buildTree 본문의 leafValue 계산과 동일한 키라서 두 축의 잎 value 가 같다.
+            var groups: [(key: String, paths: [String])] = []
+            var indexByKey: [String: Int] = [:]
+            for p in unclassified {
+                let key = normalizePrimPath(stripComponentIndex(p))
+                if let i = indexByKey[key] {
+                    groups[i].paths.append(p)
+                } else {
+                    indexByKey[key] = groups.count
+                    groups.append((key, [p]))
+                }
+            }
+            for group in groups {
+                // 다른 가지와 같은 규칙: 조상(분류 없음 자신)도 자손 경로를 쌓는다.
+                // 안 그러면 이 노드의 count(=paths.count)가 0으로 표시된다.
+                node.add(paths: group.paths)
+                let leaf = node.child(value: group.key,
+                                       label: String(group.key.split(separator: "/").last ?? ""))
+                if leaf.paths.isEmpty { leaf.add(paths: group.paths) }
+            }
             out.append(node)
         }
         return out
