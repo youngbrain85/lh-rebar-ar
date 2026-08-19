@@ -11,6 +11,8 @@ struct RebarTreePad: View {
     @Binding var checked: Set<String>
     /// 모델에서 찾은 메시 노드 수 — 0이면 이름 있는 노드가 하나도 없다
     let nodeCount: Int
+    /// 트리를 쌓는 축(부위순/종류순). 뷰모델이 들고 있어 시트를 닫았다 열어도 유지된다.
+    @Binding var axis: RebarTaxonomy.Axis
     let onClose: () -> Void
 
     private var total: Int { nodes.reduce(0) { $0 + $1.count } }
@@ -24,6 +26,15 @@ struct RebarTreePad: View {
                 Button("닫기", action: onClose)
                     .font(.subheadline)
             }
+
+            // 부위순 = 발주처 분류표 그대로, 종류순 = 발주처 기능표의 "철근 종류별".
+            // 잎이 같아서 전환해도 체크가 유지된다.
+            Picker("", selection: $axis) {
+                Text("부위순").tag(RebarTaxonomy.Axis.member)
+                Text("종류순").tag(RebarTaxonomy.Axis.kind)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
 
             // ★ 출처 배지는 필수다 — 없으면 형상 자동 분류가 도면 기반 분류인 척한다.
             //   문구는 대시보드와 **같은 문자열**을 쓴다.

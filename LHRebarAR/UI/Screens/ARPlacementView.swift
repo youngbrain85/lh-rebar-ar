@@ -144,6 +144,7 @@ struct ARPlacementView: View {
                     set: { placement.checkedRebarNodes = $0 }
                 ),
                 nodeCount: placement.rebarNodeCount,
+                axis: $placement.rebarAxis,
                 onClose: { showRebarTree = false }
             )
             .presentationDetents([.medium, .large])
