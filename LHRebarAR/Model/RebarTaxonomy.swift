@@ -53,25 +53,32 @@ enum RebarTaxonomy {
         let member: String
         let face: String?
         let fn: String
+        /// 종류 — `fn` 에서 괄호를 뗀 값. **표에 명시한다.**
+        /// 한글 라벨에 정규식을 돌리는 건 깨지기 쉽고, 분류표가 단일 진실이어야 한다.
+        let kind: String
+        /// 괄호 안 역할명. 없으면 nil.
+        let role: String?
         let optional: Bool
 
         /// 트리 경로. 면이 없는 행은 2단계다.
         var path: [String] { face == nil ? [member, fn] : [member, face!, fn] }
+        /// 종류축의 2단째 — 면이 있으면 면, 없으면 부재.
+        var position: String { face ?? member }
     }
 
     static let wallTaxonomy: [WallRow] = [
-        .init(token: "Wall_Front_Vert",       member: "벽체", face: "전면",      fn: "수직철근",             optional: false),
-        .init(token: "Wall_Front_Horiz",      member: "벽체", face: "전면",      fn: "수평철근(배력철근)",   optional: false),
-        .init(token: "Wall_Rear_Vert",        member: "벽체", face: "배면",      fn: "수직철근(주철근)",     optional: false),
-        .init(token: "Wall_Rear_Horiz",       member: "벽체", face: "배면",      fn: "수평철근(배력철근)",   optional: false),
-        .init(token: "Wall_FrontRear_Shear",  member: "벽체", face: "전면-배면", fn: "간격재(전단철근)",     optional: true),
-        .init(token: "Wall_Top_Reinf",        member: "벽체", face: "상단",      fn: "보강철근",             optional: true),
-        .init(token: "Base_Upper_Trans",      member: "저판", face: "상부",      fn: "횡방향철근(주철근)",   optional: false),
-        .init(token: "Base_Upper_Long",       member: "저판", face: "상부",      fn: "종방향철근(배력철근)", optional: false),
-        .init(token: "Base_Lower_Trans",      member: "저판", face: "하부",      fn: "횡방향철근",           optional: false),
-        .init(token: "Base_Lower_Long",       member: "저판", face: "하부",      fn: "종방향철근(배력철근)", optional: false),
-        .init(token: "Base_UpperLower_Shear", member: "저판", face: "상부-하부", fn: "간격재(전단철근)",     optional: true),
-        .init(token: "WallBase_Haunch",       member: "벽체-저판", face: nil,    fn: "보강철근(헌치철근)",   optional: true),
+        .init(token: "Wall_Front_Vert",       member: "벽체", face: "전면",      fn: "수직철근",             kind: "수직철근",   role: nil,       optional: false),
+        .init(token: "Wall_Front_Horiz",      member: "벽체", face: "전면",      fn: "수평철근(배력철근)",   kind: "수평철근",   role: "배력철근", optional: false),
+        .init(token: "Wall_Rear_Vert",        member: "벽체", face: "배면",      fn: "수직철근(주철근)",     kind: "수직철근",   role: "주철근",   optional: false),
+        .init(token: "Wall_Rear_Horiz",       member: "벽체", face: "배면",      fn: "수평철근(배력철근)",   kind: "수평철근",   role: "배력철근", optional: false),
+        .init(token: "Wall_FrontRear_Shear",  member: "벽체", face: "전면-배면", fn: "간격재(전단철근)",     kind: "간격재",     role: "전단철근", optional: true),
+        .init(token: "Wall_Top_Reinf",        member: "벽체", face: "상단",      fn: "보강철근",             kind: "보강철근",   role: nil,       optional: true),
+        .init(token: "Base_Upper_Trans",      member: "저판", face: "상부",      fn: "횡방향철근(주철근)",   kind: "횡방향철근", role: "주철근",   optional: false),
+        .init(token: "Base_Upper_Long",       member: "저판", face: "상부",      fn: "종방향철근(배력철근)", kind: "종방향철근", role: "배력철근", optional: false),
+        .init(token: "Base_Lower_Trans",      member: "저판", face: "하부",      fn: "횡방향철근",           kind: "횡방향철근", role: nil,       optional: false),
+        .init(token: "Base_Lower_Long",       member: "저판", face: "하부",      fn: "종방향철근(배력철근)", kind: "종방향철근", role: "배력철근", optional: false),
+        .init(token: "Base_UpperLower_Shear", member: "저판", face: "상부-하부", fn: "간격재(전단철근)",     kind: "간격재",     role: "전단철근", optional: true),
+        .init(token: "WallBase_Haunch",       member: "벽체-저판", face: nil,    fn: "보강철근(헌치철근)",   kind: "보강철근",   role: "헌치철근", optional: true),
     ]
 
     static let rowByToken: [String: WallRow] = {
@@ -161,6 +168,10 @@ enum RebarTaxonomy {
         /// 발주처 분류표에서의 행 인덱스. 표 밖 노드는 `Int.max`.
         /// **정렬 전용이다** — Dictionary 순회 순서가 실행마다 달라지는 것을 막는다.
         var order: Int
+        /// 종류축 재료. 분류표 밖 노드는 전부 nil → 종류순에서 「분류 없음」으로 간다.
+        var kind: String?
+        var role: String?
+        var position: String?
         /// 이 잎에 매달린 엔티티 경로 목록. 1 prim = 1 가닥 규약을 어기면 2개 이상.
         var paths: [String]
     }
@@ -202,11 +213,15 @@ enum RebarTaxonomy {
                 unmatched.append(p)
                 continue
             }
+            let row = wallTaxonomy.first { $0.path == hit.path }
             var node = nodeByPrim[key] ?? Node(
                 path: hit.path,
                 label: hit.label ?? composeLabel(path: hit.path, no: hit.no),
                 no: hit.no,
                 order: wallTaxonomy.firstIndex { $0.path == hit.path } ?? Int.max,
+                kind: row?.kind,
+                role: row?.role,
+                position: row?.position,
                 paths: []
             )
             node.paths.append(p)
@@ -234,11 +249,15 @@ enum RebarTaxonomy {
                 unmatched.append(p)
                 continue
             }
+            let row = parsed.token.flatMap { rowByToken[$0] }
             var node = nodeByPrim[key] ?? Node(
                 path: parsed.path,
                 label: composeLabel(path: parsed.path, no: parsed.no),
                 no: parsed.no,
                 order: parsed.token.flatMap { rowIndexByToken[$0] } ?? Int.max,
+                kind: row?.kind,
+                role: row?.role,
+                position: row?.position,
                 paths: []
             )
             node.paths.append(p)
@@ -284,12 +303,16 @@ enum RebarTaxonomy {
     /// 조인 안 된 철근이 모이는 고정 노드의 value.
     static let unclassifiedValue = "__unclassified__"
 
-    /// Taxonomy → 중첩 트리. `unmatched`가 있으면 「분류 없음」을 마지막에 붙인다.
-    static func buildTree(_ t: Taxonomy) -> [TreeNode] {
+    /// 트리를 쌓는 축.
+    /// - member: 발주처 분류표 그대로 — 부재 > 면 > 기능
+    /// - kind:   종류 > 위치 (2단). 발주처 기능표의 "철근 종류별" 요구에 대응한다
+    enum Axis: String { case member, kind }
+
+    /// Taxonomy → 중첩 트리. `unmatched` 가 있으면 「분류 없음」을 마지막에 붙인다.
+    static func buildTree(_ t: Taxonomy, axis: Axis = .member) -> [TreeNode] {
         let root = TreeNode(value: "", label: t.root)
         var seen = Set<String>()
 
-        // 노드 객체는 값 타입이라 참조 비교가 안 된다 — prim 키로 중복을 거른다
         // ★ Dictionary 순회 순서는 명세돼 있지 않다 — 정렬하지 않으면 앱을 다시 켤
         //   때마다 트리의 면·기능 순서가 바뀐다. (order, no, 잎경로) 로 못박는다.
         let ordered = t.byPath.values.sorted { a, b in
@@ -297,14 +320,47 @@ enum RebarTaxonomy {
             if (a.no ?? 0) != (b.no ?? 0) { return (a.no ?? 0) < (b.no ?? 0) }
             return (a.paths.first ?? "") < (b.paths.first ?? "")
         }
+
+        // 종류축 라벨은 형제 맥락에 달렸다 — 한 종류 안의 역할 집합을 먼저 모은다.
+        var rolesByKind: [String: Set<String?>] = [:]
+        if axis == .kind {
+            for n in ordered {
+                guard let k = n.kind else { continue }
+                rolesByKind[k, default: []].insert(n.role)
+            }
+        }
+
+        /// 이 노드가 축에서 갖는 경로. 종류축인데 재료가 없으면 nil(→ 분류 없음).
+        func segments(_ n: Node) -> [String]? {
+            switch axis {
+            case .member:
+                return n.path
+            case .kind:
+                guard let kind = n.kind, let position = n.position else { return nil }
+                let roles = rolesByKind[kind] ?? []
+                // 역할이 하나뿐이면 종류 노드에, 갈리면 자식에 붙인다
+                let single = roles.count == 1 ? roles.first ?? nil : nil
+                let kindLabel = single.map { "\(kind)(\($0))" } ?? kind
+                let posLabel = (roles.count > 1 && n.role != nil)
+                    ? "\(position)(\(n.role!))" : position
+                return [kindLabel, posLabel]
+            }
+        }
+
+        var orphans: [String] = []
         for node in ordered {
             let key = node.paths.sorted().joined(separator: "|")
             if seen.contains(key) { continue }
             seen.insert(key)
 
+            guard let segs0 = segments(node) else {
+                orphans.append(contentsOf: node.paths)
+                continue
+            }
+
             var level = root
             var segs: [String] = []
-            for seg in node.path {
+            for seg in segs0 {
                 segs.append(seg)
                 let child = level.child(value: segs.joined(separator: "/"), label: seg)
                 child.add(paths: node.paths)
@@ -316,9 +372,10 @@ enum RebarTaxonomy {
         }
 
         var out = root.children
-        if !t.unmatched.isEmpty {
-            let node = TreeNode(value: unclassifiedValue, label: "분류 없음 (\(t.unmatched.count))")
-            node.add(paths: t.unmatched)
+        let unclassified = t.unmatched + orphans
+        if !unclassified.isEmpty {
+            let node = TreeNode(value: unclassifiedValue, label: "분류 없음")
+            node.add(paths: unclassified)
             out.append(node)
         }
         return out
