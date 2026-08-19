@@ -324,26 +324,53 @@ enum RebarTaxonomy {
         return out
     }
 
-    /// 트리의 모든 노드 value — 초기 "전부 체크" 상태.
-    static func allValues(_ nodes: [TreeNode]) -> Set<String> {
+    /// 트리의 **잎** value 만 — 체크 상태의 신원 집합.
+    ///
+    /// ★ 조상 value 는 절대 포함하지 않는다. 조상은 자손 경로를 중복 보유하므로
+    ///   체크 집합에 들어가는 순간 자손을 꺼도 되살아난다(2026-08-18 회귀).
+    ///   조상 체크박스는 상태를 저장하지 않고 `checkState` 로 파생한다.
+    static func leafValues(_ nodes: [TreeNode]) -> Set<String> {
         var out: Set<String> = []
         func walk(_ ns: [TreeNode]) {
             for n in ns {
-                out.insert(n.value)
-                walk(n.children)
+                if n.children.isEmpty { out.insert(n.value) } else { walk(n.children) }
             }
         }
         walk(nodes)
         return out
     }
 
-    /// 체크된 노드 → 보여야 할 엔티티 경로 집합.
+    /// 한 노드 서브트리의 잎 value.
+    static func leafValues(_ node: TreeNode) -> Set<String> {
+        node.children.isEmpty ? [node.value] : leafValues(node.children)
+    }
+
+    enum CheckState: Equatable { case on, off, mixed }
+
+    /// 노드의 체크 상태 — 자손 잎에서 파생한다.
+    static func checkState(_ node: TreeNode, checked: Set<String>) -> CheckState {
+        let leaves = leafValues(node)
+        guard !leaves.isEmpty else { return .off }
+        let on = leaves.intersection(checked).count
+        if on == 0 { return .off }
+        return on == leaves.count ? .on : .mixed
+    }
+
+    /// 체크된 **잎** → 보여야 할 엔티티 경로 집합.
+    ///
+    /// ★ 잎의 `value` 가 아니라 `paths` 를 합친다. value 는 `stripComponentIndex` 를
+    ///   거친 값인데 `applyVisibility` 가 비교하는 id 는 `경로` / `경로#1` 형태다.
+    ///   한 prim 이 연결요소 여럿으로 쪼개진 경우까지 맞으려면 paths 여야 한다.
+    /// ★ 조상 노드는 절대 세지 않는다 — 자손 경로를 중복 보유하기 때문이다.
     static func visiblePaths(_ nodes: [TreeNode], checked: Set<String>) -> Set<String> {
         var out: Set<String> = []
         func walk(_ ns: [TreeNode]) {
             for n in ns {
-                if checked.contains(n.value) { out.formUnion(n.paths) }
-                walk(n.children)
+                if n.children.isEmpty {
+                    if checked.contains(n.value) { out.formUnion(n.paths) }
+                } else {
+                    walk(n.children)
+                }
             }
         }
         walk(nodes)

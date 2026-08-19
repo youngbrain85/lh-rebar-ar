@@ -143,7 +143,7 @@ struct ARPlacementView: View {
                     get: { placement.checkedRebarNodes },
                     set: { placement.checkedRebarNodes = $0 }
                 ),
-                matchCount: placement.lastFilterMatchCount,
+                nodeCount: placement.rebarNodeCount,
                 onClose: { showRebarTree = false }
             )
             .presentationDetents([.medium, .large])
