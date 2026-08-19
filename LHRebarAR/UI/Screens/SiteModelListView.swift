@@ -15,7 +15,14 @@ final class SiteModelListViewModel: ObservableObject {
         isLoading = true
         error = nil
         do {
+            // 설계모델을 위로. 현장에서 쓰는 건 설계모델이고 스캔 산출물은 참고다.
             models = try await client.fetchModels(siteID: site.siteID)
+                .sorted { a, b in
+                    let ra = a.arType.lowercased() == "design" ? 0 : 1
+                    let rb = b.arType.lowercased() == "design" ? 0 : 1
+                    if ra != rb { return ra < rb }
+                    return (a.uploadAt ?? "") > (b.uploadAt ?? "")
+                }
         } catch {
             self.error = error.localizedDescription
         }
@@ -69,8 +76,8 @@ struct SiteModelListView: View {
                         Text(model.arFilename)
                             .font(LHTypography.body)
                         HStack(spacing: LHSpacing.sm) {
-                            Text(model.arType)
-                            Text(model.uploadAt)
+                            Text(model.typeLabel)
+                            if let stamp = model.uploadAt { Text(stamp) }
                         }
                         .font(LHTypography.monoCaption)
                         .foregroundStyle(LHColors.mutedInk)
