@@ -97,6 +97,9 @@ targets:
         MARKETING_VERSION: "0.1.0"
         CURRENT_PROJECT_VERSION: "32"
         SUPPORTS_MACCATALYST: NO
+    scheme:
+      testTargets:
+        - LHRebarARTests
 
   # LH 전용 앱 — 발주처 요청으로 연구과제 앱과 분리 개발 (docs 참조:
   # AR 앱 등 요청사항_260803.pdf). 소스는 LHRebarAR와 완전히 동일하게 전부 포함하고,
@@ -188,3 +191,19 @@ targets:
         CURRENT_PROJECT_VERSION: "1"
         SUPPORTS_MACCATALYST: NO
         SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) LH_ONLY"
+    scheme:
+      testTargets:
+        - LHRebarARTests
+
+  # 호스트 없는 순수 로직 테스트. 앱을 빌드하지 않으므로 LiveKit 도 안 끌어온다.
+  # 여기 넣는 소스는 `import Foundation` 만 하는 파일로 제한한다 — ARKit/SwiftUI 가
+  # 딸려 오면 호스트 없는 번들이 깨진다.
+  LHRebarARTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: LHRebarAR/Model/RebarTaxonomy.swift
+      - path: LHRebarAR/Backend/RebarMetaFile.swift
+      - path: LHRebarAR/Backend/BackendDTOs.swift
+      - path: LHRebarARTests
