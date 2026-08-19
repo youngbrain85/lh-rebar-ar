@@ -198,10 +198,28 @@ targets:
   # 호스트 없는 순수 로직 테스트. 앱을 빌드하지 않으므로 LiveKit 도 안 끌어온다.
   # 여기 넣는 소스는 `import Foundation` 만 하는 파일로 제한한다 — ARKit/SwiftUI 가
   # 딸려 오면 호스트 없는 번들이 깨진다.
+  #
+  # info: 를 명시하는 이유 — xcodegen 소스(PBXProjGenerator.getInfoPlists)는
+  # INFOPLIST_FILE을 이 순서로만 정한다: ①명시적 빌드 세팅 ②이 info: 블록
+  # ③sources 안에서 파일명이 "Info.plist"인 파일 검색. 셋 다 없으면 그냥 비워
+  # 둔다 — GENERATE_INFOPLIST_FILE을 대신 켜주지 않는다(소스에 그런 로직이
+  # 없음, 2026-08-19 GitHub에서 직접 확인). 이 타겟은 sources에 실제
+  # Info.plist가 없으므로 ③도 안 걸려 지금까지 완전히 빈 채였다 — 리뷰에서
+  # 지적된 위험 그대로. 이 머신엔 Xcode가 없어 xcodebuild로 실증할 수는
+  # 없었다(XcodeGen 자체 테스트 픽스처는 info: 없이도 bundle.unit-test가
+  # 동작하는 걸로 보아 Info.plist 자체가 없어도 XCTest가 별문제 없이 도는
+  # 걸로 보이지만, 이것도 소스 추적이 아니라 정황 증거다). 확신이 없으므로
+  # 위험을 코드로 없앤다 — 경로는 LHRebarAR/ 바로 밑(104행 LHRebarARLH
+  # 주석과 같은 이유로 어느 타겟의 sources 스캔 범위에도 안 걸린다).
   LHRebarARTests:
     type: bundle.unit-test
     platform: iOS
     deploymentTarget: "17.0"
+    info:
+      path: LHRebarAR/Info-Tests.plist
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: NO
     sources:
       - path: LHRebarAR/Model/RebarTaxonomy.swift
       - path: LHRebarAR/Backend/RebarMetaFile.swift

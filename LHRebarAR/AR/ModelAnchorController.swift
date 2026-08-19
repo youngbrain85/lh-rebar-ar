@@ -168,7 +168,8 @@ final class ModelAnchorController {
         return out
     }
 
-    /// 경로 집합에 해당하는 노드의 `isEnabled`를 설정한다. 반환값은 매칭된 노드 수.
+    /// 보여야 할 경로 집합을 통째로 적용한다(그 밖은 숨긴다). 반환값은 매칭된 노드 수.
+    /// `visible`이 nil이면 전부 켠다.
     ///
     /// 투명도가 아니라 `isEnabled`를 쓰는 이유(고차 §3.6):
     ///  - 전역 투명도 슬라이더가 개별 노드 상태를 덮어쓴다
@@ -176,32 +177,9 @@ final class ModelAnchorController {
     ///    철근에 측정 레티클이 계속 스냅된다**
     ///  - `applyOpacity`는 PBR/Simple 외 머티리얼에 조용히 실패한다
     ///
-    /// 반환값이 0이면 조인 실패다 — 그게 유일한 증상이므로 호출부가 반드시 확인해야 한다.
-    @discardableResult
-    func setHidden(_ hidden: Bool, paths: Set<String>) -> Int {
-        guard let modelEntity else { return 0 }
-        var matched = 0
-        var seen: [String: Int] = [:]
-        var stack: [(Entity, String)] = [(modelEntity, "")]
-        while let (entity, prefix) = stack.popLast() {
-            for child in entity.children {
-                stack.append((child, prefix + "/" + child.name))
-            }
-            guard entity.components[ModelComponent.self] != nil else { continue }
-            let key = RebarTaxonomy.normalizePrimPath(prefix)
-            let n = seen[key] ?? 0
-            seen[key] = n + 1
-            let id = n == 0 ? key : "\(key)#\(n)"
-            if paths.contains(id) {
-                entity.isEnabled = !hidden
-                matched += 1
-            }
-        }
-        return matched
-    }
-
-    /// 보여야 할 경로 집합을 통째로 적용한다(그 밖은 숨긴다). 반환값은 매칭된 노드 수.
-    /// `visible`이 nil이면 전부 켠다.
+    /// 매칭 실패(반환값 0)와 "사용자가 전부 숨김"은 다른 사건이므로 이 함수는 둘을
+    /// 구분하지 않는다 — 조인 성패는 트리를 만들 때 `rebarNodeCount`로 한 번만
+    /// 판정한다(고차 #16, CLAUDE.md).
     @discardableResult
     func applyVisibility(_ visible: Set<String>?) -> Int {
         guard let modelEntity else { return 0 }

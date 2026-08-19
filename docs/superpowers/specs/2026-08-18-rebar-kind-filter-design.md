@@ -377,9 +377,17 @@ struct Node: Equatable {
 }
 ```
 
-- `fromPrimNames` — 매칭된 `WallRow`에서 `kindPath`·`order`를 채운다
-- `fromSidecar` — 사이드카의 `path` 배열이 어느 행의 `rowPath(row)`와 **원소 단위로 같으면** 그 행에서 채우고, 아니면 `kindPath = nil` / `order = Int.max`
-- `kindPath == nil`인 노드는 종류순 트리에서 「분류 없음」 아래로 간다 (부위순에서는 그대로 보인다)
+> **정정 (2026-08-18 최종 리뷰)**: 구현은 `kindPath: [String]?` 하나가 아니라
+> `kind: String?` / `role: String?` / `position: String?` 세 필드를 따로 둔다.
+> §6.3의 라벨 규칙(종류 노드에 role을 붙일지 자식에 붙일지)이 **형제 맥락에
+> 의존**하기 때문에 — 같은 kind라도 role 종류가 갈리는지에 따라 라벨이
+> 달라진다 — 노드별로 미리 계산해 둔 경로 배열로는 이 규칙을 표현할 수 없다.
+> 즉 이 코드 블록과 §6.3은 서로 모순이었고, **구현(3필드)이 옳다.** `buildTree`가
+> 트리를 조립하는 시점에 형제를 모아 §6.3 규칙을 적용해 라벨을 계산한다.
+
+- `fromPrimNames` — 매칭된 `WallRow`에서 `kind`/`role`/`position`·`order`를 채운다
+- `fromSidecar` — 사이드카의 `path` 배열이 어느 행의 `rowPath(row)`와 **원소 단위로 같으면** 그 행에서 채우고, 아니면 `kind`/`role`/`position` 전부 nil / `order = Int.max`
+- `kind == nil`인 노드는 종류순 트리에서 「분류 없음」 아래로 간다 (부위순에서는 그대로 보인다)
 
 ### 6.5 축 전환 시 체크가 유지된다
 
@@ -454,7 +462,7 @@ Swift 테스트 타겟이 **하나도 없다.** 이번에 발견한 결함 3건(
 | 7 | 3상태 | 9개 중 4개만 체크된 노드가 `.mixed` |
 | 8 | 종류순 트리 | `수직철근(14) > 전면(9) / 배면(주철근)(5)`, `수평철근(배력철근)(18)`, `간격재(전단철근)(13)` |
 | 9 | **축 전환에서 체크 유지** | 부위순에서 9개 해제 → 종류순으로 바꿔도 `visiblePaths` 36개 |
-| 10 | `kindPath` nil | 표 밖 이름은 종류순에서 「분류 없음」, 부위순에선 그대로 |
+| 10 | `kind` nil (구현은 3필드 — §6.4 정정 참조) | 표 밖 이름은 종류순에서 「분류 없음」, 부위순에선 그대로 |
 | 11 | `ARModel` 디코딩 | 실측 site 1 `ar-list` JSON 원문 그대로 → 2건 디코딩. **두 번째 항목**이 `arID == "2"`, `scanID == "101"`, `arType == "design"`, `uploadAt == "2026-08-18 00:22:03"`, `note == "설계모델 벽체 45가닥"`, `typeLabel == "설계모델"` |
 | 12 | 디코딩 관용성 | `uploaded_at`·`upload_at`·`source_filename` 중 무엇이 타임스탬프여도 통과. 셋 다 없으면 `uploadAt == nil`이되 항목은 살아남음 |
 | 13 | 캐시 키 | `uploadAt` nil일 때 `arFilename` 폴백 |
@@ -536,7 +544,7 @@ TS 쪽은 `kind`·`role` 컬럼 추가뿐이지만, 실측 45 prim 픽스처를 
 | `LHRebarAR/Backend/ModelFileStore.swift` | `versionStamp` 폴백 (§4.4) |
 | `LHRebarAR/UI/Screens/SiteModelListView.swift` | `typeLabel` 표시 + 설계모델 우선 정렬 |
 | `LHRebarAR/UI/Screens/ARModelDetailView.swift` | 같은 표시 수정 |
-| `LHRebarAR/Model/RebarTaxonomy.swift` | `kind`/`role`/`order`/`kindPath`, `leafValues`, `visiblePaths` 잎 한정, `buildTree(axis:)`, 정렬 (§5·§6) |
+| `LHRebarAR/Model/RebarTaxonomy.swift` | `kind`/`role`/`position`/`order`, `leafValues`, `visiblePaths` 잎 한정, `buildTree(axis:)`, 정렬 (§5·§6, `kindPath`는 §6.4 정정대로 미채택) |
 | `LHRebarAR/UI/Components/RebarTreePad.swift` | 3상태 체크박스, 축 Picker, `nodeCount` (§5.2·§6.6) |
 | `LHRebarAR/Placement/PlacementViewModel.swift` | `rebarTaxonomy`/`rebarAxis`/`rebarNodeCount`, 원복 로직 삭제 (§5.3·§6.6) |
 | `LHRebarARTests/` | 신설 (§7) |

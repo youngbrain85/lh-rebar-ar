@@ -244,8 +244,18 @@ screen is the device screen, so the field app raycasts that point directly.
     안 된다 — `buildTree` 가 조상마다 자손 경로를 중복 보유하므로(`child.add(paths:)`),
     조상이 체크돼 있으면 자손을 꺼도 `visiblePaths` 합집합에서 되살아난다. 2026-08-18
     까지 필터가 **아무것도 숨기지 못한** 원인이 이것이다. 조상 체크박스는 상태를
-    저장하지 말고 `RebarTaxonomy.checkState` 로 파생할 것. 대시보드가 같은 union
-    규칙인데도 멀쩡한 이유는 Mantine `useTree` 가 잎만 저장하기 때문이다.
+    저장하지 말고 `RebarTaxonomy.checkState` 로 파생할 것.
+    **정정(2026-08-19, 최종 리뷰에서 반증됨)**: "대시보드는 Mantine `useTree`가 잎만
+    저장해서 멀쩡하다"는 원래 결론은 틀렸다. 잎 정규화(`getInitialCheckedState`)는
+    `Tree.mjs`의 `useEffect(() => controller.initialize(data), [data])` 안에서만
+    돈다 — `data`가 그대로인 채 체크 상태만 바뀌면 재정규화가 없다. 그런데
+    `RebarTree.tsx:93`의 「전체 선택」은 `onCheckedChange(allValues(nodes))`로 **조상
+    value까지 포함한** 배열을 controlled `checkedState`에 직접 밀어넣는다(`tree.checkAllNodes()`를
+    거치지 않음 — 그쪽은 잎만 담는 `getAllChildrenNodes`를 쓴다). 이후 잎 하나를
+    `uncheckNode`로 끄면 그 잎의 value만 빠지고 조상 value는 남으므로,
+    `visibleIdsFromChecked`가 조상 노드의 `ids`(자손 전체)를 여전히 합집합해
+    **방금 끈 철근이 되살아난다.** 즉 대시보드에도 같은 버그가 「전체 선택」
+    경로로 **도달 가능**하다 — 코드는 아직 고치지 않았다(§8 참조).
 
 16. **"보이는 개수 0"을 조인 실패로 읽지 말 것.** 사용자가 전부 숨긴 것과 이름이
     안 맞아 조인이 실패한 것은 다른 사건이다. 예전 `applyRebarFilter` 는 둘을 같은
@@ -361,6 +371,14 @@ The app normally fetches tokens from the dashboard at runtime; the embedded
   (개수는 `TreeNode.count`가 따로 표시), 대시보드 `taxonomy.ts:387`은 `"분류 없음 (N)"`이고
   `taxonomy.test.ts`가 그 값을 단언한다. 고차 #13과 분류표 단일 진실 원칙상 두 구현이
   갈리면 안 되므로, 대시보드 작업 때 라벨과 테스트를 함께 맞춰야 한다.
+- **대시보드 「전체 선택」도 체크-union 버그에 도달 가능하다** (고차 #15 정정 참조,
+  2026-08-19 최종 리뷰에서 Mantine 소스로 확인). `RebarTree.tsx:93`이 조상 value까지
+  포함한 배열을 controlled state에 직접 넣어 Mantine의 잎 정규화(`Tree.mjs`의
+  `useEffect(..., [data])`)를 건너뛴다 — 이후 잎 하나를 꺼도 조상 value가 안 빠져서
+  `visibleIdsFromChecked`가 그 철근을 되살린다. 고칠 방법은 여러 갈래(전체 선택을
+  잎만 넣게 바꾸거나, `tree.checkAllNodes()`를 쓰거나, controlled state를 항상
+  잎으로 정규화)라 이번 브랜치에서는 판단을 유보하고 기록만 남긴다 — 대시보드 소스
+  변경은 이번 범위 밖.
 
 **Blocked on BriconLab:**
 - `POST /analysis/measurement-upload` — spec written in `api/MEASUREMENT_UPLOAD_REQUEST.md` (multipart: image + site_id + ar_id + inspector + remark + captured_at + `measurements[]` with name/points/distance/h/v/source). Once it exists, wire the capture flow to upload instead of only saving to Photos.
