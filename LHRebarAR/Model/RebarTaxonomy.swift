@@ -80,6 +80,13 @@ enum RebarTaxonomy {
         return m
     }()
 
+    /// 토큰 → 분류표 행 인덱스. 트리 형제 순서를 표 순서로 고정하는 데 쓴다.
+    static let rowIndexByToken: [String: Int] = {
+        var m: [String: Int] = [:]
+        for (i, r) in wallTaxonomy.enumerated() { m[r.token] = i }
+        return m
+    }()
+
     /// 표에 없는 이름을 만났을 때의 느슨한 폴백 — 괄호 안 역할명은 복원하지 못한다.
     static let looseTokens: [String: String] = [
         "Wall": "벽체", "Base": "저판", "WallBase": "벽체-저판",
@@ -106,6 +113,8 @@ enum RebarTaxonomy {
     struct Parsed: Equatable {
         var path: [String]
         var no: Int?
+        /// 분류표 행에 정확히 맞은 경우 그 토큰. 느슨한 폴백으로 만든 경로면 nil.
+        var token: String?
     }
 
     /// 이름 하나를 경로로 해석. 해석 불가면 nil.
@@ -121,8 +130,9 @@ enum RebarTaxonomy {
         guard !tokens.isEmpty else { return nil }
 
         // ★ 분류표 조회가 우선. 괄호 안 역할명은 조합을 봐야 나온다.
-        if let row = rowByToken[tokens.joined(separator: "_")] {
-            return Parsed(path: row.path, no: no)
+        let joined = tokens.joined(separator: "_")
+        if let row = rowByToken[joined] {
+            return Parsed(path: row.path, no: no, token: joined)
         }
 
         var path: [String] = []
@@ -139,7 +149,7 @@ enum RebarTaxonomy {
             guard let mapped = looseTokens[t] else { return nil }
             path.append(mapped)
         }
-        return Parsed(path: path, no: no)
+        return Parsed(path: path, no: no, token: nil)
     }
 
     // MARK: - 노드 · 트리
@@ -148,6 +158,9 @@ enum RebarTaxonomy {
         var path: [String]
         var label: String
         var no: Int?
+        /// 발주처 분류표에서의 행 인덱스. 표 밖 노드는 `Int.max`.
+        /// **정렬 전용이다** — Dictionary 순회 순서가 실행마다 달라지는 것을 막는다.
+        var order: Int
         /// 이 잎에 매달린 엔티티 경로 목록. 1 prim = 1 가닥 규약을 어기면 2개 이상.
         var paths: [String]
     }
@@ -193,6 +206,7 @@ enum RebarTaxonomy {
                 path: hit.path,
                 label: hit.label ?? composeLabel(path: hit.path, no: hit.no),
                 no: hit.no,
+                order: wallTaxonomy.firstIndex { $0.path == hit.path } ?? Int.max,
                 paths: []
             )
             node.paths.append(p)
@@ -224,6 +238,7 @@ enum RebarTaxonomy {
                 path: parsed.path,
                 label: composeLabel(path: parsed.path, no: parsed.no),
                 no: parsed.no,
+                order: parsed.token.flatMap { rowIndexByToken[$0] } ?? Int.max,
                 paths: []
             )
             node.paths.append(p)
@@ -275,7 +290,14 @@ enum RebarTaxonomy {
         var seen = Set<String>()
 
         // 노드 객체는 값 타입이라 참조 비교가 안 된다 — prim 키로 중복을 거른다
-        for (_, node) in t.byPath {
+        // ★ Dictionary 순회 순서는 명세돼 있지 않다 — 정렬하지 않으면 앱을 다시 켤
+        //   때마다 트리의 면·기능 순서가 바뀐다. (order, no, 잎경로) 로 못박는다.
+        let ordered = t.byPath.values.sorted { a, b in
+            if a.order != b.order { return a.order < b.order }
+            if (a.no ?? 0) != (b.no ?? 0) { return (a.no ?? 0) < (b.no ?? 0) }
+            return (a.paths.first ?? "") < (b.paths.first ?? "")
+        }
+        for node in ordered {
             let key = node.paths.sorted().joined(separator: "|")
             if seen.contains(key) { continue }
             seen.insert(key)

@@ -42,4 +42,34 @@ final class RebarTaxonomyTests: XCTestCase {
         XCTAssertEqual(RebarTaxonomy.normalizePrimPath("/modelEntity/RebarModel/Wall_Front_Vert_01"),
                        "/RebarModel/Wall_Front_Vert_01")
     }
+
+    /// Swift Dictionary 순회 순서는 명세되지 않고 새로 만들 때마다 달라진다.
+    /// 매번 새 Taxonomy 를 만들어 트리 모양이 같은지 본다.
+    func testTreeOrderIsDeterministic() throws {
+        func shape(_ ns: [RebarTaxonomy.TreeNode]) -> [String] {
+            ns.flatMap { [$0.label] + shape($0.children) }
+        }
+        let base = try XCTUnwrap(RebarTaxonomy.fromPrimNames(entityPaths: DesignModelFixture.paths))
+        let expected = shape(RebarTaxonomy.buildTree(base))
+        for i in 0..<50 {
+            let again = try XCTUnwrap(
+                RebarTaxonomy.fromPrimNames(entityPaths: DesignModelFixture.paths))
+            XCTAssertEqual(shape(RebarTaxonomy.buildTree(again)), expected, "반복 \(i)")
+        }
+    }
+
+    /// 형제 순서는 발주처 분류표 행 순서를 따른다 — 전면 → 배면 → 전면-배면.
+    func testTreeOrderFollowsOfficialTable() throws {
+        let t = try XCTUnwrap(RebarTaxonomy.fromPrimNames(entityPaths: DesignModelFixture.paths))
+        let tree = RebarTaxonomy.buildTree(t)
+        XCTAssertEqual(tree.map(\.label), ["벽체"])
+        XCTAssertEqual(tree[0].children.map(\.label), ["전면", "배면", "전면-배면"])
+        XCTAssertEqual(tree[0].children[0].children.map(\.label),
+                       ["수직철근", "수평철근(배력철근)"])
+        XCTAssertEqual(tree[0].children[1].children.map(\.label),
+                       ["수직철근(주철근)", "수평철근(배력철근)"])
+        // 잎은 번호순
+        XCTAssertEqual(tree[0].children[1].children[0].children.map(\.label),
+                       (1...5).map { "벽체-배면-수직철근(주철근)-0\($0)" })
+    }
 }
