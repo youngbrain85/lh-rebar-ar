@@ -331,8 +331,11 @@ struct ARPlacementView: View {
         }
     }
 
-    /// 철근 계층 필터 — `AppFeatures.rebarFilter`를 실제로 읽는 유일한 지점.
-    /// 앱별 차이는 AppFeatures 한 곳에서만 정한다 (고차 #13).
+    /// 철근 계층 필터 진입점 — LH 전용 앱에서만 그려진다.
+    /// `AppFeatures.rebarFilter`를 읽는 곳은 총 4군데다: 이 뷰의 표시 조건(:327)과
+    /// 시트 바인딩(:136), 그리고 `PlacementViewModel`의 트리 생성(:118)·필터 적용(:158).
+    /// 연구과제 앱에서는 넷 다 막혀 버튼도 패널도 트리 계산도 없다.
+    /// 앱별 차이의 **정의**는 AppFeatures 한 곳에서만 한다 (고차 #13).
     private var rebarTreeToggle: some View {
         Button {
             HapticsService.shared.impact()
