@@ -120,9 +120,23 @@ python3 -m venv .venv && .venv/bin/pip install pyjwt
 
 ### iOS app — version 0.2.0 (bumped 2026-08-20 for the 철근 종류축 필터 milestone)
 
-**2026-08-20 uploads** (CI run `32320881822`, `app=both upload=true`, from `main` at `daa1797`):
-`altool` reported `UPLOAD SUCCEEDED with no errors` for both IPAs — research **0.2.0 (37)**,
-LH **0.2.0 (4)**. A second run from `7931477` follows with the 길이 측정 removal (38 / 5).
+**2026-08-20 uploads.** Three `app=both upload=true` runs; all reported
+`UPLOAD SUCCEEDED with no errors` from `altool`.
+
+| run | from | research | LH | contents |
+|---|---|---|---|---|
+| `32320881822` | `daa1797` | 37 | 4 | 종류축 필터 + 회귀 4건 |
+| `32321568624` | `7931477` | **37** | **4** | 길이 측정 제거 — **번호가 1차와 충돌** |
+| `32324596083` | `ad3fc3f` | **39** | **5** | 터치 44pt + 위 전부. **현재 최신** |
+
+The collision happened because `next_build.py` reads ASC's current max, and the 2nd run queried
+**82 seconds** after the 1st upload finished — before Apple had registered those builds. Two runs
+in quick succession will collide again; the guard was deliberately deferred (2026-08-20).
+
+**Unexplained:** the 3rd run was assigned research **39**, so ASC's max was 38 — but no run here
+produced a 38, and LH went 4 → 5 with no gap. Where research build 38 came from is unknown; it
+could not be checked from the dev machine (no ASC key locally). It does not matter operationally
+— build 39 supersedes everything — but do not assume the 37-collision story is complete.
 
 Those build numbers came from `next_build.py` querying ASC, so they also correct a long-stale
 claim in this file: the research app was already at **36**, not 27, and the LH app already had
