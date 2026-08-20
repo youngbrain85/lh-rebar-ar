@@ -54,7 +54,7 @@ targets:
         # 발주처 요청으로 앱을 둘로 나누면서 표시명도 승인된 스펙값으로 맞춘다
         # (LHRebarARLH 타겟 설명 참조). 번들 ID·서명·TestFlight 이력에는 영향 없음.
         CFBundleDisplayName: 철근 AR 연구
-        CFBundleShortVersionString: "0.1.0"
+        CFBundleShortVersionString: "0.2.0"
         CFBundleVersion: "32"
         LSRequiresIPhoneOS: true
         UILaunchScreen:
@@ -94,7 +94,7 @@ targets:
         GENERATE_INFOPLIST_FILE: NO
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: G88CPAZ3MP
-        MARKETING_VERSION: "0.1.0"
+        MARKETING_VERSION: "0.2.0"
         CURRENT_PROJECT_VERSION: "32"
         SUPPORTS_MACCATALYST: NO
     scheme:
@@ -144,7 +144,7 @@ targets:
       path: LHRebarAR/Info-LH.plist
       properties:
         CFBundleDisplayName: LH 철근검측
-        CFBundleShortVersionString: "0.1.0"
+        CFBundleShortVersionString: "0.2.0"
         CFBundleVersion: "1"
         LSRequiresIPhoneOS: true
         UILaunchScreen:
@@ -187,7 +187,7 @@ targets:
         GENERATE_INFOPLIST_FILE: NO
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: G88CPAZ3MP
-        MARKETING_VERSION: "0.1.0"
+        MARKETING_VERSION: "0.2.0"
         CURRENT_PROJECT_VERSION: "1"
         SUPPORTS_MACCATALYST: NO
         SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) LH_ONLY"

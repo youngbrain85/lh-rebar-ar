@@ -114,7 +114,15 @@ python3 -m venv .venv && .venv/bin/pip install pyjwt
 
 ## 3. Current status
 
-### iOS app — build 27 (0.1.0) on TestFlight, VALID
+### iOS app — version 0.2.0 (bumped 2026-08-20 for the 철근 종류축 필터 milestone)
+
+Last state confirmed on TestFlight was **build 27 (0.1.0), VALID**. Build numbers are assigned by
+CI from an App Store Connect query (`scripts/next_build.py`), not from `project.yml` — the
+`CURRENT_PROJECT_VERSION` values there are placeholders. To check what actually landed:
+`ASC_KEY_ID=<키ID> ASC_KEY_PATH=<.p8 경로> .venv/Scripts/python.exe scripts/build_status.py <build>`
+(add `BUNDLE_ID=kr.lh.rebar-lh` for the LH app). The `.p8` at
+`~/.appstoreconnect/private_keys/` on this Windows machine is a **0-byte placeholder** — the real
+key lives only in CI secrets, so TestFlight status cannot be queried from here.
 
 Working and verified on device:
 - **Model placement** — tap to place USDZ; raycast priority LiDAR mesh → plane → estimated plane
@@ -403,7 +411,7 @@ The app normally fetches tokens from the dashboard at runtime; the embedded
 - Measurement depth accuracy: multi-sample averaging around the reticle to damp LiDAR noise
 - Memo v3: edit/delete individual pins, persist memos to the backend
 - Company domain on the dashboard (Vercel → add domain + DNS record)
-- Version bump to 0.2.0 at the next feature milestone (still 0.1.0 through build 27)
+- ~~Version bump to 0.2.0 at the next feature milestone~~ — done 2026-08-20 (§3)
 
 **Field-test feedback status** (`TalkFile_어플 테스트 결과.pdf`): all AR-app items resolved
 (button removals, label occlusion, fine-adjust reset, Visual SLAM). The LiDAR
