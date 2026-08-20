@@ -4,16 +4,23 @@ Auto-loaded by Claude Code in this directory. It carries decisions, hard-won
 gotchas, and the current plan across machines/sessions so a fresh session can
 continue without re-deriving anything.
 
-**Last updated**: 2026-08-18 · branch `feat/rebar-kind-filter` (Tasks 1–8 of the 철근 종류축
-필터 plan complete, pushed to origin, no PR yet — controller decides) — adds a 부위순/종류순
-axis toggle to `AppFeatures.rebarFilter`'s tree, keyed off the 발주처 분류표's `kind`/`role`
-columns; see §1 · **dashboard: 209/209 vitest pass, `tsc --noEmit` clean — the only verification
-actually run for this branch** · **Swift test target is brand new (24 cases across 5 files in
-`LHRebarARTests/`) and has never executed, and the Swift code has never compiled** — dev machine
-is Windows (no `xcodebuild`), and CI (`ios-testflight.yml`) triggers only on `workflow_dispatch`,
-so nothing ran it automatically; first run needs
-`gh workflow run ios-testflight.yml --ref feat/rebar-kind-filter -f app=both -f upload=false` ·
-device verification (D1–D7) not done — see `docs/ar-app-split-device-check.md`.
+**Last updated**: 2026-08-20 · branch `feat/rebar-kind-filter` (Tasks 1–8 of the 철근 종류축
+필터 plan complete, pushed to origin, no PR yet) — adds a 부위순/종류순 axis toggle to
+`AppFeatures.rebarFilter`'s tree, keyed off the 발주처 분류표's `kind`/`role` columns; see §1.
+
+**CI verified 2026-08-20** (run `32318678961`, `app=both upload=false`): both matrix jobs green
+end to end — xcodegen → **`Unit tests`: `Executed 24 tests, with 0 failures`, `** TEST SUCCEEDED **`**
+→ compile check → archive → export. That run is the **first time this branch's Swift ever
+compiled**. Dashboard: 209/209 vitest, `tsc --noEmit` clean.
+
+**Still unverified: device (D1–D7)** — see `docs/ar-app-split-device-check.md`. Unit tests prove
+the pure logic, not RealityKit behaviour; whether RealityKit preserves USD prim names as
+`Entity.name` (§3.7 of the design spec) is the assumption everything else rests on.
+
+CI does **not** run on push/PR — `ios-testflight.yml` is `workflow_dispatch` only, so re-verify
+after further commits with
+`gh workflow run ios-testflight.yml --ref feat/rebar-kind-filter -f app=both -f upload=false`
+(the `--ref` is required; without it the run silently targets `main`).
 
 ---
 
