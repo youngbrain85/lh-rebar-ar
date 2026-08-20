@@ -120,7 +120,14 @@ python3 -m venv .venv && .venv/bin/pip install pyjwt
 
 ### iOS app — version 0.2.0 (bumped 2026-08-20 for the 철근 종류축 필터 milestone)
 
-Last state confirmed on TestFlight was **build 27 (0.1.0), VALID**. Build numbers are assigned by
+**2026-08-20 uploads** (CI run `32320881822`, `app=both upload=true`, from `main` at `daa1797`):
+`altool` reported `UPLOAD SUCCEEDED with no errors` for both IPAs — research **0.2.0 (37)**,
+LH **0.2.0 (4)**. A second run from `7931477` follows with the 길이 측정 removal (38 / 5).
+
+Those build numbers came from `next_build.py` querying ASC, so they also correct a long-stale
+claim in this file: the research app was already at **36**, not 27, and the LH app already had
+**3 builds** — its 2026-08-20 upload was *not* its first. Do not trust a build number written
+here; query ASC. Build numbers are assigned by
 CI from an App Store Connect query (`scripts/next_build.py`), not from `project.yml` — the
 `CURRENT_PROJECT_VERSION` values there are placeholders. To check what actually landed:
 `ASC_KEY_ID=<키ID> ASC_KEY_PATH=<.p8 경로> .venv/Scripts/python.exe scripts/build_status.py <build>`
