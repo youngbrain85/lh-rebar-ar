@@ -4,23 +4,28 @@ Auto-loaded by Claude Code in this directory. It carries decisions, hard-won
 gotchas, and the current plan across machines/sessions so a fresh session can
 continue without re-deriving anything.
 
-**Last updated**: 2026-08-20 · branch `feat/rebar-kind-filter` (Tasks 1–8 of the 철근 종류축
-필터 plan complete, pushed to origin, no PR yet) — adds a 부위순/종류순 axis toggle to
-`AppFeatures.rebarFilter`'s tree, keyed off the 발주처 분류표's `kind`/`role` columns; see §1.
+**Last updated**: 2026-08-20 · everything below is **merged to `main`**. PRs #17 (철근 종류축
+필터), #18 (연구과제 앱 길이 측정 제거), #19 (터치 대상 44pt) are in. Shipped as **0.2.0 —
+research build 39, LH build 5** (§3).
 
-**CI verified 2026-08-20** (run `32318678961`, `app=both upload=false`): both matrix jobs green
-end to end — xcodegen → **`Unit tests`: `Executed 24 tests, with 0 failures`, `** TEST SUCCEEDED **`**
-→ compile check → archive → export. That run is the **first time this branch's Swift ever
-compiled**. Dashboard: 209/209 vitest, `tsc --noEmit` clean.
+**Verified**: Swift 24 unit tests green in CI (`Executed 24 tests, with 0 failures`); dashboard
+209/209 vitest + `tsc --noEmit` clean; both apps archive, export, and upload to TestFlight.
 
-**Still unverified: device (D1–D7)** — see `docs/ar-app-split-device-check.md`. Unit tests prove
-the pure logic, not RealityKit behaviour; whether RealityKit preserves USD prim names as
-`Entity.name` (§3.7 of the design spec) is the assumption everything else rests on.
+**NOT verified: device (D1–D7)** — see `docs/ar-app-split-device-check.md`. Unit tests prove pure
+logic, not RealityKit behaviour. **D1 is the load-bearing one**: whether RealityKit preserves USD
+prim names as `Entity.name`. If it does not, the 철근 트리 collapses to a single 「분류 없음」 node
+and the whole filter is decorative. Build 39/5 is the first build a tester can check this on.
 
-CI does **not** run on push/PR — `ios-testflight.yml` is `workflow_dispatch` only, so re-verify
-after further commits with
-`gh workflow run ios-testflight.yml --ref feat/rebar-kind-filter -f app=both -f upload=false`
-(the `--ref` is required; without it the run silently targets `main`).
+CI does **not** run on push/PR — `ios-testflight.yml` is `workflow_dispatch` only:
+`gh workflow run ios-testflight.yml --ref main -f app=both -f upload=<true|false>`
+**The `--ref` is required** — without it the run silently targets the default branch (this
+actually happened 2026-08-19 and verified nothing).
+
+**Actions costs real money here** (private repo, personal account, `macos-15` runners billed at
+10× the Linux rate). One `app=both` run ≈ 20–24 runner-minutes ≈ $1.6–2.0. The account budget
+was $0 with *Stop usage* on, which silently killed a run at 3 seconds with zero steps — the only
+clue was a job annotation, not a log line. Raised to $10 on 2026-08-20 (≈5 runs). Prefer
+`app=research` or `app=lh` when only one app changed.
 
 ---
 
