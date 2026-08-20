@@ -24,7 +24,9 @@ struct RebarTreePad: View {
                     .font(.headline)
                 Spacer()
                 Button("닫기", action: onClose)
-                    .font(.subheadline)
+                    .font(.body)
+                    // 텍스트 버튼도 터치 대상 하한을 지킨다(HIG 44pt).
+                    .frame(minWidth: LHSpacing.iconChip, minHeight: LHSpacing.iconChip)
             }
 
             // 부위순 = 발주처 분류표 그대로, 종류순 = 발주처 기능표의 "철근 종류별".
@@ -51,13 +53,15 @@ struct RebarTreePad: View {
 
             HStack(spacing: LHSpacing.sm) {
                 Button("전체 선택") { checked = RebarTaxonomy.leafValues(nodes) }
+                    .frame(minHeight: LHSpacing.iconChip)
                 Button("전체 해제") { checked = [] }
+                    .frame(minHeight: LHSpacing.iconChip)
                 Spacer()
                 Text("철근 \(total)개")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            .font(.subheadline)
+            .font(.body)
 
             if nodes.isEmpty {
                 Text("모델을 배치하면 철근 목록이 나옵니다.")
@@ -71,7 +75,7 @@ struct RebarTreePad: View {
                         }
                     }
                 }
-                .frame(maxHeight: 320)
+                .frame(maxHeight: 420)
             }
         }
         .padding(LHSpacing.md)
@@ -96,14 +100,14 @@ private struct RebarTreeRow: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: LHSpacing.xs) {
                 if node.children.isEmpty {
-                    Spacer().frame(width: 14)
+                    Spacer().frame(width: 20)
                 } else {
                     Button {
                         expanded.toggle()
                     } label: {
                         Image(systemName: expanded ? "chevron.down" : "chevron.right")
-                            .font(.system(size: 10, weight: .semibold))
-                            .frame(width: 14)
+                            .font(.system(size: 13, weight: .semibold))
+                            .frame(width: 20)
                     }
                     .buttonStyle(.plain)
                 }
@@ -118,21 +122,21 @@ private struct RebarTreeRow: View {
                         case .off:   return "square"
                         }
                     }())
-                    .font(.system(size: 15))
+                    .font(.system(size: 22))
                 }
                 .buttonStyle(.plain)
 
                 Text(node.label)
-                    .font(.subheadline)
+                    .font(.body)
                     .lineLimit(1)
                 Spacer(minLength: LHSpacing.xs)
                 Text("\(node.count)")
-                    .font(.caption2.monospacedDigit())
+                    .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
             }
             // 클릭 대상 최소 32pt — 디자인 시스템 §7 규칙
-            .frame(minHeight: 32)
-            .padding(.leading, CGFloat(depth) * 14)
+            .frame(minHeight: LHSpacing.iconChip)
+            .padding(.leading, CGFloat(depth) * 16)
 
             if expanded {
                 ForEach(node.children, id: \.value) { child in

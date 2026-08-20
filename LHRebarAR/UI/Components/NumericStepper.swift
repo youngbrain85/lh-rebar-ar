@@ -51,7 +51,7 @@ private struct StepHoldButton: View {
 
     var body: some View {
         Image(systemName: systemName)
-            .font(.system(size: 14, weight: .semibold))
+            .font(.system(size: LHSpacing.iconGlyph, weight: .semibold))
             .frame(width: LHSpacing.stepButton, height: LHSpacing.stepButton)
             .foregroundStyle(.white)
             .background(
