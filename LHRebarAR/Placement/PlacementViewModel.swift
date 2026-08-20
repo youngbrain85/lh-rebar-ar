@@ -30,8 +30,15 @@ final class PlacementViewModel: ObservableObject {
     @Published var checkedRebarNodes: Set<String> = [] {
         didSet { if oldValue != checkedRebarNodes { applyRebarFilter() } }
     }
-    /// `setHidden`이 하나도 못 맞췄을 때 UI가 알 수 있게 — 0이면 조인 실패다
-    @Published private(set) var lastFilterMatchCount: Int?
+    /// 분류 결과 원본. 축을 바꿀 때 재분류하지 않고 트리만 다시 쌓는다.
+    @Published private(set) var rebarTaxonomy: RebarTaxonomy.Taxonomy?
+    /// 트리를 쌓는 축. 시트를 닫았다 열어도 유지되도록 뷰모델이 들고 있는다.
+    @Published var rebarAxis: RebarTaxonomy.Axis = .member {
+        didSet { if oldValue != rebarAxis { rebuildTreeOnly() } }
+    }
+    /// 배치된 모델에서 찾은 메시 노드 수. 0이면 RealityKit 이 이름 있는 노드를
+    /// 주지 않았다는 뜻이다(스펙 §3.7 — 기기 검증 항목).
+    @Published private(set) var rebarNodeCount: Int = 0
 
     private var loadedTemplate: Entity?
     private var anchorController: ModelAnchorController?
@@ -111,33 +118,37 @@ final class PlacementViewModel: ObservableObject {
         guard AppFeatures.rebarFilter, let controller = anchorController,
               let model = controller.modelEntity else {
             rebarTree = []
+            rebarTaxonomy = nil
+            rebarNodeCount = 0
             return
         }
         let paths = ModelAnchorController.meshNodePaths(of: model)
+        rebarNodeCount = paths.count
 
         if let meta = rebarMeta, meta.isUsable {
             let t = RebarTaxonomy.fromSidecar(meta, entityPaths: paths)
-            if !t.byPath.isEmpty {
-                rebarTree = RebarTaxonomy.buildTree(t)
-                rebarSource = t.source
-                checkedRebarNodes = RebarTaxonomy.allValues(rebarTree)
-                return
-            }
+            if !t.byPath.isEmpty { adopt(t); return }
         }
-        if let t = RebarTaxonomy.fromPrimNames(entityPaths: paths) {
-            rebarTree = RebarTaxonomy.buildTree(t)
-            rebarSource = t.source
-            checkedRebarNodes = RebarTaxonomy.allValues(rebarTree)
-            return
-        }
+        if let t = RebarTaxonomy.fromPrimNames(entityPaths: paths) { adopt(t); return }
         // 이름이 규약을 안 따르면 계층 없이 평평하게 나열한다 — 개별 토글은 유지된다
         // (spec §7.5). 아무것도 못 하는 것보다 낫다.
-        let flat = RebarTaxonomy.Taxonomy(
-            root: "전체", byPath: [:], unmatched: paths, source: .geometry
-        )
-        rebarTree = RebarTaxonomy.buildTree(flat)
-        rebarSource = .geometry
-        checkedRebarNodes = RebarTaxonomy.allValues(rebarTree)
+        adopt(RebarTaxonomy.Taxonomy(
+            root: "전체", byPath: [:], unmatched: paths, source: .geometry))
+    }
+
+    /// 새 분류를 채택한다 — 트리를 쌓고 체크를 전부 켠다.
+    private func adopt(_ t: RebarTaxonomy.Taxonomy) {
+        rebarTaxonomy = t
+        rebarSource = t.source
+        rebarTree = RebarTaxonomy.buildTree(t, axis: rebarAxis)
+        checkedRebarNodes = RebarTaxonomy.leafValues(rebarTree)
+    }
+
+    /// 축만 바꾼다 — 재분류도, 체크 초기화도 하지 않는다.
+    /// 잎 value 가 축과 무관해서(정규화된 prim 경로) 체크가 그대로 유효하다.
+    private func rebuildTreeOnly() {
+        guard let t = rebarTaxonomy else { return }
+        rebarTree = RebarTaxonomy.buildTree(t, axis: rebarAxis)
     }
 
     /// 사이드카 계층 정보. 모델과 함께 받아 둔다(없으면 nil → 이름 기반 폴백).
@@ -145,18 +156,15 @@ final class PlacementViewModel: ObservableObject {
 
     private func applyRebarFilter() {
         guard AppFeatures.rebarFilter, !rebarTree.isEmpty else { return }
-        let all = RebarTaxonomy.allValues(rebarTree)
+        let all = RebarTaxonomy.leafValues(rebarTree)
         // 전부 체크된 상태는 "필터 없음"이다 — 굳이 집합을 만들지 않는다
         let visible: Set<String>? = checkedRebarNodes == all
             ? nil
             : RebarTaxonomy.visiblePaths(rebarTree, checked: checkedRebarNodes)
-        let matched = anchorController?.applyVisibility(visible) ?? 0
-        lastFilterMatchCount = matched
-        // 0이면 조인 실패 — 다른 모델을 배치했거나 이름이 안 맞는다. 필터를 비워
-        // "아무것도 안 숨긴 채 필터가 걸린 것처럼 보이는" 상태로 두지 않는다.
-        if matched == 0 && visible != nil {
-            checkedRebarNodes = all
-        }
+        anchorController?.applyVisibility(visible)
+        // ★ 여기서 matched==0 을 조인 실패로 읽지 않는다. "사용자가 전부 숨겼다" 와
+        //   구분되지 않아 전체 해제가 즉시 원복되던 것이 2026-08-18 회귀였다.
+        //   조인 성패는 rebuildRebarTree 에서 rebarNodeCount 로 한 번만 판정한다.
     }
 
     func clearPlacementHistory() {

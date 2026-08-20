@@ -66,8 +66,9 @@ struct ARModelDetailView: View {
                 infoRow("ar_id", vm.model.arID)
                 infoRow("scan_id", vm.model.scanID)
                 infoRow("파일", vm.model.arFilename)
-                infoRow("타입", vm.model.arType)
-                infoRow("업로드", vm.model.uploadAt)
+                infoRow("타입", vm.model.typeLabel)
+                infoRow("업로드", vm.model.uploadAt ?? "—")
+                if let note = vm.model.note { infoRow("설명", note) }
             }
 
             Section("AR") {

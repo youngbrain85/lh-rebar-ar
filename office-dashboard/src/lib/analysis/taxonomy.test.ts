@@ -347,3 +347,67 @@ describe("SOURCE_NOTICE", () => {
     expect(SOURCE_NOTICE.geometry).toBe("형상 자동 분류 — 부위 구분 아님");
   });
 });
+
+describe("실제 설계모델 (2026-08-18 BriconLab 업로드)", () => {
+  // GET /analysis/usdz?ar_id=2 의 def Mesh 45개. 합성이 아니라 실측이다.
+  const seq = (token: string, n: number) =>
+    Array.from({ length: n }, (_, i) =>
+      `/RebarModel/${token}_${String(i + 1).padStart(2, "0")}`);
+  const IDS = [
+    ...seq("Wall_FrontRear_Shear", 13),
+    ...seq("Wall_Front_Horiz", 9),
+    ...seq("Wall_Front_Vert", 9),
+    ...seq("Wall_Rear_Horiz", 9),
+    ...seq("Wall_Rear_Vert", 5),
+  ];
+
+  it("45개 전부 분류표로 해석된다", () => {
+    const t = taxonomyFromPrimNames(IDS)!;
+    expect(t).not.toBeNull();
+    expect(t.source).toBe("primName");
+    expect(t.unmatched).toEqual([]);
+    expect(t.byId.size).toBe(45);
+
+    const counts: Record<string, number> = {};
+    for (const [, n] of t.byId) {
+      const k = n.path.join(">");
+      counts[k] = (counts[k] ?? 0) + 1;
+    }
+    expect(counts).toEqual({
+      "벽체>전면-배면>간격재(전단철근)": 13,
+      "벽체>전면>수평철근(배력철근)": 9,
+      "벽체>전면>수직철근": 9,
+      "벽체>배면>수평철근(배력철근)": 9,
+      "벽체>배면>수직철근(주철근)": 5,
+    });
+  });
+
+  it("Wall_Front 접두어가 Wall_FrontRear_Shear 를 삼키지 않는다", () => {
+    const t = taxonomyFromPrimNames(IDS)!;
+    expect(t.byId.get("/RebarModel/Wall_FrontRear_Shear_01")!.path)
+      .toEqual(["벽체", "전면-배면", "간격재(전단철근)"]);
+    expect(t.byId.get("/RebarModel/Wall_Front_Vert_01")!.path)
+      .toEqual(["벽체", "전면", "수직철근"]);
+  });
+});
+
+describe("분류표 kind/role 컬럼", () => {
+  // iOS RebarTaxonomy.swift 의 wallTaxonomy 와 **같은 값**이어야 한다.
+  it("모든 행에 kind 가 있고 role 은 fn 의 괄호 안과 일치한다", () => {
+    for (const r of WALL_TAXONOMY) {
+      expect(r.kind.length).toBeGreaterThan(0);
+      const m = /\(([^)]+)\)$/.exec(r.fn);
+      expect(r.role).toEqual(m ? m[1] : null);
+      expect(r.fn.startsWith(r.kind)).toBe(true);
+    }
+  });
+
+  it("종류가 면을 가로질러 합쳐진다", () => {
+    const byKind = new Map<string, string[]>();
+    for (const r of WALL_TAXONOMY) {
+      byKind.set(r.kind, [...(byKind.get(r.kind) ?? []), r.token]);
+    }
+    expect(byKind.get("수직철근")).toEqual(["Wall_Front_Vert", "Wall_Rear_Vert"]);
+    expect(byKind.get("간격재")).toEqual(["Wall_FrontRear_Shear", "Base_UpperLower_Shear"]);
+  });
+});

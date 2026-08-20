@@ -1,7 +1,9 @@
 import Foundation
 
 /// Downloads and caches converted USDZ model files under Caches/Models, keyed by
-/// ar_id + upload timestamp so a re-uploaded model re-downloads. The USDZ comes
+/// ar_id + `ARModel.versionStamp`. 서버가 upload_at 자리에 remark 를 넣어 보내던
+/// 시기에는 이 스탬프가 상수여서 재업로드해도 옛 파일을 계속 썼다 —
+/// versionStamp 가 형식으로 타임스탬프를 고르면서 해소됐다. The USDZ comes
 /// from the backend's (pending) `/analysis/usdz` endpoint; until that's live the
 /// download surfaces `BackendError.notAvailable` so the UI shows "변환 대기".
 @MainActor
@@ -18,7 +20,7 @@ final class ModelFileStore: ObservableObject {
     }
 
     func usdzURL(for model: ARModel) -> URL {
-        directory.appendingPathComponent("\(model.arID)_\(versionStamp(model)).usdz")
+        directory.appendingPathComponent("\(model.arID)_\(model.versionStamp).usdz")
     }
 
     func isCached(_ model: ARModel) -> Bool {
@@ -64,13 +66,6 @@ final class ModelFileStore: ObservableObject {
     }
 
     // MARK: - Helpers
-
-    private func versionStamp(_ model: ARModel) -> String {
-        model.uploadAt
-            .replacingOccurrences(of: " ", with: "_")
-            .replacingOccurrences(of: ":", with: "")
-            .replacingOccurrences(of: "-", with: "")
-    }
 
     private static func looksLikeUSDZ(at url: URL) -> Bool {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return false }

@@ -143,22 +143,26 @@ export interface WallTaxonomyRow {
   /** 면. 벽체-저판 경계처럼 면이 없는 행은 null */
   face: string | null;
   fn: string;
+  /** 종류 — `fn` 에서 괄호를 뗀 값. iOS `RebarTaxonomy.wallTaxonomy` 와 같아야 한다 */
+  kind: string;
+  /** 괄호 안 역할명. 없으면 null */
+  role: string | null;
   optional: boolean;
 }
 
 export const WALL_TAXONOMY: readonly WallTaxonomyRow[] = [
-  { token: "Wall_Front_Vert",       member: "벽체", face: "전면",      fn: "수직철근",           optional: false },
-  { token: "Wall_Front_Horiz",      member: "벽체", face: "전면",      fn: "수평철근(배력철근)", optional: false },
-  { token: "Wall_Rear_Vert",        member: "벽체", face: "배면",      fn: "수직철근(주철근)",   optional: false },
-  { token: "Wall_Rear_Horiz",       member: "벽체", face: "배면",      fn: "수평철근(배력철근)", optional: false },
-  { token: "Wall_FrontRear_Shear",  member: "벽체", face: "전면-배면", fn: "간격재(전단철근)",   optional: true },
-  { token: "Wall_Top_Reinf",        member: "벽체", face: "상단",      fn: "보강철근",           optional: true },
-  { token: "Base_Upper_Trans",      member: "저판", face: "상부",      fn: "횡방향철근(주철근)", optional: false },
-  { token: "Base_Upper_Long",       member: "저판", face: "상부",      fn: "종방향철근(배력철근)", optional: false },
-  { token: "Base_Lower_Trans",      member: "저판", face: "하부",      fn: "횡방향철근",         optional: false },
-  { token: "Base_Lower_Long",       member: "저판", face: "하부",      fn: "종방향철근(배력철근)", optional: false },
-  { token: "Base_UpperLower_Shear", member: "저판", face: "상부-하부", fn: "간격재(전단철근)",   optional: true },
-  { token: "WallBase_Haunch",       member: "벽체-저판", face: null,   fn: "보강철근(헌치철근)", optional: true },
+  { token: "Wall_Front_Vert",       member: "벽체", face: "전면",      fn: "수직철근",             kind: "수직철근",   role: null,       optional: false },
+  { token: "Wall_Front_Horiz",      member: "벽체", face: "전면",      fn: "수평철근(배력철근)",   kind: "수평철근",   role: "배력철근", optional: false },
+  { token: "Wall_Rear_Vert",        member: "벽체", face: "배면",      fn: "수직철근(주철근)",     kind: "수직철근",   role: "주철근",   optional: false },
+  { token: "Wall_Rear_Horiz",       member: "벽체", face: "배면",      fn: "수평철근(배력철근)",   kind: "수평철근",   role: "배력철근", optional: false },
+  { token: "Wall_FrontRear_Shear",  member: "벽체", face: "전면-배면", fn: "간격재(전단철근)",     kind: "간격재",     role: "전단철근", optional: true },
+  { token: "Wall_Top_Reinf",        member: "벽체", face: "상단",      fn: "보강철근",             kind: "보강철근",   role: null,       optional: true },
+  { token: "Base_Upper_Trans",      member: "저판", face: "상부",      fn: "횡방향철근(주철근)",   kind: "횡방향철근", role: "주철근",   optional: false },
+  { token: "Base_Upper_Long",       member: "저판", face: "상부",      fn: "종방향철근(배력철근)", kind: "종방향철근", role: "배력철근", optional: false },
+  { token: "Base_Lower_Trans",      member: "저판", face: "하부",      fn: "횡방향철근",           kind: "횡방향철근", role: null,       optional: false },
+  { token: "Base_Lower_Long",       member: "저판", face: "하부",      fn: "종방향철근(배력철근)", kind: "종방향철근", role: "배력철근", optional: false },
+  { token: "Base_UpperLower_Shear", member: "저판", face: "상부-하부", fn: "간격재(전단철근)",     kind: "간격재",     role: "전단철근", optional: true },
+  { token: "WallBase_Haunch",       member: "벽체-저판", face: null,   fn: "보강철근(헌치철근)",   kind: "보강철근",   role: "헌치철근", optional: true },
 ] as const;
 
 /** 표의 한 행 → 트리 경로. 면이 없는 행은 2단계다 */

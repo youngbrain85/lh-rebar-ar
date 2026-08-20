@@ -9,8 +9,10 @@ struct RebarTreePad: View {
     let nodes: [RebarTaxonomy.TreeNode]
     let source: RebarTaxonomy.Source
     @Binding var checked: Set<String>
-    /// `applyVisibility`가 마지막으로 맞춘 노드 수 — 0이면 조인 실패다
-    let matchCount: Int?
+    /// 모델에서 찾은 메시 노드 수 — 0이면 이름 있는 노드가 하나도 없다
+    let nodeCount: Int
+    /// 트리를 쌓는 축(부위순/종류순). 뷰모델이 들고 있어 시트를 닫았다 열어도 유지된다.
+    @Binding var axis: RebarTaxonomy.Axis
     let onClose: () -> Void
 
     private var total: Int { nodes.reduce(0) { $0 + $1.count } }
@@ -25,6 +27,15 @@ struct RebarTreePad: View {
                     .font(.subheadline)
             }
 
+            // 부위순 = 발주처 분류표 그대로, 종류순 = 발주처 기능표의 "철근 종류별".
+            // 잎이 같아서 전환해도 체크가 유지된다.
+            Picker("", selection: $axis) {
+                Text("부위순").tag(RebarTaxonomy.Axis.member)
+                Text("종류순").tag(RebarTaxonomy.Axis.kind)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+
             // ★ 출처 배지는 필수다 — 없으면 형상 자동 분류가 도면 기반 분류인 척한다.
             //   문구는 대시보드와 **같은 문자열**을 쓴다.
             if let notice = source.notice {
@@ -32,14 +43,14 @@ struct RebarTreePad: View {
                     .font(.caption)
                     .foregroundStyle(.orange)
             }
-            if matchCount == 0 {
-                Label("모델에서 해당 철근을 찾지 못했습니다", systemImage: "xmark.circle")
+            if nodeCount == 0 {
+                Label("모델에서 철근 노드를 찾지 못했습니다", systemImage: "xmark.circle")
                     .font(.caption)
                     .foregroundStyle(.red)
             }
 
             HStack(spacing: LHSpacing.sm) {
-                Button("전체 선택") { checked = RebarTaxonomy.allValues(nodes) }
+                Button("전체 선택") { checked = RebarTaxonomy.leafValues(nodes) }
                 Button("전체 해제") { checked = [] }
                 Spacer()
                 Text("철근 \(total)개")
@@ -75,19 +86,11 @@ private struct RebarTreeRow: View {
     @Binding var checked: Set<String>
     @State private var expanded = true
 
-    private var subtreeValues: Set<String> {
-        var out: Set<String> = [node.value]
-        func walk(_ ns: [RebarTaxonomy.TreeNode]) {
-            for n in ns {
-                out.insert(n.value)
-                walk(n.children)
-            }
-        }
-        walk(node.children)
-        return out
+    /// 이 서브트리의 **잎** value 만. 조상 value 는 체크 집합에 넣지 않는다.
+    private var leaves: Set<String> { RebarTaxonomy.leafValues(node) }
+    private var state: RebarTaxonomy.CheckState {
+        RebarTaxonomy.checkState(node, checked: checked)
     }
-
-    private var isOn: Bool { checked.contains(node.value) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -106,11 +109,16 @@ private struct RebarTreeRow: View {
                 }
 
                 Button {
-                    let values = subtreeValues
-                    if isOn { checked.subtract(values) } else { checked.formUnion(values) }
+                    if state == .on { checked.subtract(leaves) } else { checked.formUnion(leaves) }
                 } label: {
-                    Image(systemName: isOn ? "checkmark.square.fill" : "square")
-                        .font(.system(size: 15))
+                    Image(systemName: {
+                        switch state {
+                        case .on:    return "checkmark.square.fill"
+                        case .mixed: return "minus.square.fill"
+                        case .off:   return "square"
+                        }
+                    }())
+                    .font(.system(size: 15))
                 }
                 .buttonStyle(.plain)
 

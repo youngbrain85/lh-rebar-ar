@@ -149,6 +149,28 @@ jobs:
           echo "키체인의 서명 인증서:"
           security find-identity -v -p codesigning "$KEYCHAIN"
 
+      # 순수 로직이 깨졌으면 5분짜리 컴파일·아카이브 전에 알아야 한다.
+      # `xcodebuild test -scheme`는 스킴의 build action(=앱 타겟)을 xcodebuild가 알아서
+      # 빌드한다 — `-only-testing:`은 무엇이 *실행*될지만 거를 뿐 무엇이 *빌드*될지는
+      # 안 거른다(테스트 번들 자체는 Foundation 3파일뿐이라 가볍지만, 앱은 그대로 딸려
+      # 온다). 그래서 이 스텝도 바로 뒤 `Compile check`와 **같은 -derivedDataPath**를
+      # 써서 캐시를 태운다 — 앱을 두 번 컴파일하되 두 번째는 거의 공짜가 되게.
+      - name: Unit tests
+        if: ${{ github.event.inputs.app == 'both' || github.event.inputs.app == matrix.app }}
+        run: |
+          set -euo pipefail
+          # 러너 이미지마다 있는 기기가 달라 이름을 하드코딩하지 않는다.
+          UDID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys
+          d = json.load(sys.stdin)["devices"]
+          print(next(x["udid"] for v in d.values() for x in v if x["name"].startswith("iPhone")))')
+          echo "시뮬레이터: $UDID"
+          xcodebuild test \
+            -project LHRebarAR.xcodeproj -scheme ${{ matrix.scheme }} \
+            -destination "id=$UDID" \
+            -derivedDataPath build/dd-${{ matrix.scheme }} \
+            -only-testing:LHRebarARTests \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
+
       # 서명 없이 시뮬레이터용으로 한 번 컴파일한다. Archive는 클라우드 서명을
       # 먼저 하므로 Apple 계정의 인증서 한도에 걸리면 **Swift가 한 줄도 컴파일되기
       # 전에** 실패한다 — 그러면 "코드가 빌드되는가"를 CI로 확인할 방법이 없다.
