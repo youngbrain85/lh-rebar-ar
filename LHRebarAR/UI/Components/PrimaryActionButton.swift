@@ -13,13 +13,16 @@ struct PrimaryActionButton: View {
             HStack(spacing: LHSpacing.sm) {
                 if let systemImage {
                     Image(systemName: systemImage)
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(.system(size: LHSpacing.iconGlyph, weight: .semibold))
                 }
                 Text(title)
                     .font(LHTypography.labelBold)
             }
             .padding(.horizontal, 18)
             .padding(.vertical, 10)
+            // 세로 패딩(10+10)에 caption 한 줄을 더해도 ~36pt 라 HIG 하한에 못 미쳤다.
+            // 하한을 명시해 둔다 — 패딩을 만지다 다시 44 아래로 내려가지 않게.
+            .frame(minHeight: LHSpacing.iconChip)
             .background(background, in: Capsule())
             .foregroundStyle(foreground)
         }

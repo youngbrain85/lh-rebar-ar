@@ -342,7 +342,7 @@ struct ARPlacementView: View {
             showRebarTree.toggle()
         } label: {
             Image(systemName: "list.bullet.indent")
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: LHSpacing.iconGlyph, weight: .semibold))
                 .foregroundStyle(showRebarTree ? LHColors.adjusting : .white)
                 .frame(width: LHSpacing.iconChip, height: LHSpacing.iconChip)
                 .background(LHColors.overlay, in: Circle())
@@ -356,7 +356,7 @@ struct ARPlacementView: View {
             HapticsService.shared.impact()
         } label: {
             Image(systemName: "ruler")
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: LHSpacing.iconGlyph, weight: .semibold))
                 .foregroundStyle(measurement.isActive ? LHColors.adjusting : .white)
                 .frame(width: LHSpacing.iconChip, height: LHSpacing.iconChip)
                 .background(LHColors.overlay, in: Circle())
@@ -379,7 +379,7 @@ struct ARPlacementView: View {
             }
         } label: {
             Image(systemName: "scope")
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: LHSpacing.iconGlyph, weight: .semibold))
                 .foregroundStyle(.white)
                 .frame(width: LHSpacing.iconChip, height: LHSpacing.iconChip)
                 .background(LHColors.overlay, in: Circle())
@@ -411,7 +411,7 @@ struct ARPlacementView: View {
             Image(systemName: liveShare.isSharing
                   ? "dot.radiowaves.left.and.right"
                   : "shareplay")
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: LHSpacing.iconGlyph, weight: .semibold))
                 .foregroundStyle(liveShare.isSharing ? .red : .white)
                 .frame(width: LHSpacing.iconChip, height: LHSpacing.iconChip)
                 .background(LHColors.overlay, in: Circle())
@@ -432,7 +432,7 @@ struct ARPlacementView: View {
             }
         } label: {
             Image(systemName: liveShare.micEnabled ? "mic.fill" : "mic.slash.fill")
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: LHSpacing.iconGlyph, weight: .semibold))
                 .foregroundStyle(liveShare.micEnabled ? .red : .white)
                 .frame(width: LHSpacing.iconChip, height: LHSpacing.iconChip)
                 .background(LHColors.overlay, in: Circle())
@@ -517,7 +517,7 @@ struct ARPlacementView: View {
             HapticsService.shared.impact()
         } label: {
             Image(systemName: session.showDiagnostics ? "waveform.circle.fill" : "waveform.circle")
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: LHSpacing.iconGlyph, weight: .semibold))
                 .foregroundStyle(session.showDiagnostics ? LHColors.accent : .white)
                 .frame(width: LHSpacing.iconChip, height: LHSpacing.iconChip)
                 .background(LHColors.overlay, in: Circle())
@@ -601,7 +601,7 @@ struct ARPlacementView: View {
                 Image(systemName: session.showMeshDebug
                       ? "square.grid.3x3.fill"
                       : "square.grid.3x3")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: LHSpacing.iconGlyph, weight: .semibold))
                     .foregroundStyle(session.showMeshDebug ? LHColors.accent : .white)
                     .frame(width: LHSpacing.iconChip, height: LHSpacing.iconChip)
                     .background(LHColors.overlay, in: Circle())
@@ -627,7 +627,7 @@ struct ARPlacementView: View {
             HapticsService.shared.impact()
         } label: {
             Image(systemName: "trash")
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: LHSpacing.iconGlyph, weight: .semibold))
                 .foregroundStyle(.white)
                 .frame(width: LHSpacing.iconChip, height: LHSpacing.iconChip)
                 .background(LHColors.overlay, in: Circle())
