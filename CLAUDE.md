@@ -37,11 +37,15 @@ Two shipped pieces that work together for on-site rebar QA:
 Both iOS apps are built from **one Xcode project, two targets** (`LHRebarAR` /
 `LHRebarARLH`) sharing all source files; a single compile-time flag decides which
 screens each shows — see `AppFeatures.swift` and gotcha #13 in §5. The client's
-feature table put 길이 측정 (length measurement) under LH-only, but it's an
-existing, field-verified feature — the team decided (2026-08-05) to keep it in
-the research app too rather than take that as a net loss. The two apps' only
-remaining functional difference is 실시간 협업 (live collaboration) and the
-철근 계층 필터 (`AppFeatures.rebarFilter`, LH app only).
+feature table puts 길이 측정 (length measurement) under LH-only, and that is where it now
+sits — **but this flag has flipped twice, so read the history before touching it**:
+2026-08-04 designed LH-only per the table → 2026-08-05 the user kept it in both apps
+("field-verified feature, removing it is a net loss") → **2026-08-20 the user removed it from
+the research app again**, because 오차 시각화 takes that slot there. The full history is in the
+`#else` branch comment of `AppFeatures.swift`.
+
+So the research app has 실시간 협업 + (coming) 오차 시각화; the LH app has 길이 측정 +
+철근 계층 필터 (`AppFeatures.rebarFilter`).
 
 **철근 계층 필터** (`AppFeatures.rebarFilter`, LH 앱 전용)는 **부위순 / 종류순 두 축**을
 전환 토글로 제공한다. 부위순은 발주처 분류표 그대로(부재 > 면 > 기능), 종류순은
