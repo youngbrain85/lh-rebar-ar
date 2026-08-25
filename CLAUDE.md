@@ -11,7 +11,11 @@ research build 39, LH build 5** (§3).
 **Verified**: Swift 24 unit tests green in CI (`Executed 24 tests, with 0 failures`); dashboard
 209/209 vitest + `tsc --noEmit` clean; both apps archive, export, and upload to TestFlight.
 
-**NOT verified: device (D1–D7)** — see `docs/ar-app-split-device-check.md`. Unit tests prove pure
+**기기 검증 통과 (2026-08-20, 빌드 39/5)**: 사용자가 실기기에서 확인 — LH 앱의 철근 트리가
+정상 동작한다. 즉 **D1 이 통과했다: RealityKit 은 USD prim 이름을 `Entity.name` 으로 보존한다.**
+이 저장소가 오래 안고 있던 최대 미검증 가정이 해소됐다.
+
+**이전 상태 (참고): device (D1–D7)** — see `docs/ar-app-split-device-check.md`. Unit tests prove pure
 logic, not RealityKit behaviour. **D1 is the load-bearing one**: whether RealityKit preserves USD
 prim names as `Entity.name`. If it does not, the 철근 트리 collapses to a single 「분류 없음」 node
 and the whole filter is decorative. Build 39/5 is the first build a tester can check this on.
